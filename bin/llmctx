@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+usage() {
+  cat <<'EOF'
+usage:
+  llmctx install
+  llmctx version [--json]
+  llmctx doctor [--json|--quiet]
+  llmctx explain <profile|branchPolicy|protectedBranches> [repo]
+  llmctx skills install [--dev]
+  llmctx vendor check
+  llmctx repo diff [repo] [--json]
+  llmctx publish sync [--check]
+EOF
+}
+
+command_name="${1:-}"
+case "$command_name" in
+  install)
+    shift
+    exec "$SCRIPT_DIR/bootstrap.sh" "$@"
+    ;;
+  version)
+    shift
+    exec "$SCRIPT_DIR/version.sh" "$@"
+    ;;
+  doctor)
+    shift
+    exec "$SCRIPT_DIR/doctor.sh" "$@"
+    ;;
+  explain)
+    shift
+    exec "$SCRIPT_DIR/explain-policy.sh" "$@"
+    ;;
+  skills)
+    [[ "${2:-}" == "install" ]] || {
+      usage >&2
+      exit 2
+    }
+    shift 2
+    exec "$SCRIPT_DIR/install-skills.sh" "$@"
+    ;;
+  vendor)
+    [[ "${2:-}" == "check" ]] || {
+      usage >&2
+      exit 2
+    }
+    shift 2
+    [[ "$#" -eq 0 ]] || {
+      usage >&2
+      exit 2
+    }
+    exec "$SCRIPT_DIR/check-vendor-lock.sh" "$@"
+    ;;
+  repo)
+    [[ "${2:-}" == "diff" ]] || {
+      usage >&2
+      exit 2
+    }
+    shift 2
+    exec "$SCRIPT_DIR/repo-diff.sh" "$@"
+    ;;
+  publish)
+    [[ "${2:-}" == "sync" ]] || {
+      usage >&2
+      exit 2
+    }
+    shift 2
+    exec "$SCRIPT_DIR/sync-published-context.sh" "$@"
+    ;;
+  -h | --help | help)
+    usage
+    ;;
+  *)
+    usage >&2
+    exit 2
+    ;;
+esac

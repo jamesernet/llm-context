@@ -1,0 +1,6 @@
+llm-context
+Copyright 2026 James Erne
+
+This product includes third-party agent skills. Their provenance and license
+notices are recorded in vendor/README.md, vendor.lock.json, and
+skills/LICENSE.upstream.

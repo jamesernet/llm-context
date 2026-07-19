@@ -1,0 +1,76 @@
+# Pre-commit config for llm-context ITSELF.
+#
+# WHY THIS EXISTS ALONGSIDE bin/git-hooks/pre-commit
+#
+# This repo has its own hook chain, installed by bin/bootstrap.sh:
+#
+#   .git/hooks/pre-commit        branch policy + gitleaks   (bin/git-hooks/pre-commit)
+#     └─ execs pre-commit.local  lint-skills + adapter drift (bin/git-hooks/pre-commit-local.llm-context)
+#         └─ runs `pre-commit run` when the framework is installed  ← this file
+#
+# That chain is the canonical path and covers every committer, including humans
+# and Codex. This file adds the checks a hand-rolled hook should not reimplement
+# — shell linting, formatting, file hygiene — and makes the generic path work:
+# before this existed, a plain `pre-commit install` in this repo found no config
+# and silently did nothing, which reads as "checked" when nothing was checked.
+#
+# CAUTION: do not run `pre-commit install` here. It would overwrite
+# .git/hooks/pre-commit and displace the branch/gitleaks backstop. bootstrap.sh
+# wires the chain above, which invokes this config for you. In CI, call
+# `pre-commit run --all-files` directly.
+
+# NOTE ON vendor/: it is third-party code vendored verbatim for reproducibility,
+# refreshed by bin/update-vendor.sh. Rewriting it locally would make every vendor
+# update a conflict against upstream and quietly fork the copy this repo exists
+# to keep faithful. So the FORMATTING hooks below exclude it — but gitleaks
+# deliberately does not, because vendored third-party code is precisely where an
+# unnoticed secret would ride in.
+#
+# This is scoped per-hook rather than as a top-level `exclude:`, which would
+# apply to gitleaks too and silently drop vendor/ out of the secret scan.
+
+repos:
+  # Secrets. Also enforced in bin/git-hooks/pre-commit — deliberately duplicated
+  # so this config is safe standalone (CI, or a repo without the chain). The
+  # scan is ~70ms on this tree; the redundancy is cheaper than the gap.
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2
+    hooks:
+      - id: gitleaks
+
+  # This repo is mostly shell, and its shell is security-relevant: git hooks and
+  # a PreToolUse guard that decides whether an edit is allowed to happen.
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.10.0.1
+    hooks:
+      - id: shellcheck
+        args: [--severity=warning, --external-sources]
+        exclude: '^vendor/'
+
+  - repo: https://github.com/scop/pre-commit-shfmt
+    rev: v3.10.0-1
+    hooks:
+      - id: shfmt
+        args: [-i, "2", -ci, -w]
+        exclude: '^vendor/'
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-executables-have-shebangs
+        exclude: '^vendor/'
+      - id: check-shebang-scripts-are-executable
+        # *.template.sh files carry a shebang because the file they BECOME is a
+        # script, but they are templates copied into other repos and made
+        # executable there. Marking them +x here would be wrong.
+        exclude: '^vendor/|\.template\.sh$'
+      - id: check-merge-conflict
+      - id: check-yaml
+        exclude: '^vendor/'
+      - id: check-json # claude/settings.json must stay parseable
+        exclude: '^vendor/'
+      - id: detect-private-key
+      - id: end-of-file-fixer
+        exclude: '^vendor/'
+      - id: trailing-whitespace
+        exclude: '^vendor/'

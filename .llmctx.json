@@ -1,0 +1,6 @@
+{
+  "schemaVersion": 1,
+  "profile": "personal",
+  "branchPolicy": "remind",
+  "protectedBranches": ["main"]
+}

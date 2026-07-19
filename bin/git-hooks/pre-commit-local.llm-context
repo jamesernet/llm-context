@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# Repo-local pre-commit checks for llm-context ITSELF. Installed as
+# .git/hooks/pre-commit.local by bin/bootstrap.sh; the branch backstop
+# (bin/git-hooks/pre-commit) execs it after its own check passes.
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+bin/lint-skills.sh
+bin/check-vendor-lock.sh
+tests/run.sh
+
+git_dir="$(cd "$(git rev-parse --git-dir)" && pwd -P)"
+common_dir="$(cd "$(git rev-parse --git-common-dir)" && pwd -P)"
+if [[ "$git_dir" == "$common_dir" ]]; then
+  bin/build-adapters.sh --check
+else
+  test_home="$(mktemp -d "${TMPDIR:-/tmp}/llmctx-adapters.XXXXXX")"
+  trap 'rm -rf "$test_home"' EXIT
+  HOME="$test_home" bin/build-adapters.sh >/dev/null
+  HOME="$test_home" bin/build-adapters.sh --check
+fi
+
+# Framework hooks (shellcheck, shfmt, hygiene) from .pre-commit-config.yaml.
+# Invoked from here rather than via `pre-commit install`, which would overwrite
+# .git/hooks/pre-commit and displace the branch + gitleaks backstop that calls
+# this script. Skipped when pre-commit is absent so the chain still works on a
+# machine that has not run the full bootstrap.
+if command -v pre-commit >/dev/null 2>&1; then
+  pre-commit run --hook-stage pre-commit
+fi

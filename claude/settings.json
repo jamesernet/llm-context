@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|NotebookEdit|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/branch-policy.sh",
+            "statusMessage": "Checking branch policy..."
+          }
+        ]
+      }
+    ]
+  },
+  "cleanupPeriodDays": 30
+}

@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+# llmctx-hook: branch backstop from jamesernet/llm-context. Managed by
+# bin/install-git-hooks.sh — don't edit this copy; edit bin/git-hooks/pre-commit
+# in the llm-context repo and re-run the installer.
+#
+# Blocks commits on protected branches. A tool-agnostic backstop for the
+# "branch before you build" rule: it fires for ANY committer — human, Claude,
+# Codex, or a script — because git runs it on every commit. After the check
+# passes, it chains to pre-commit.local, so a repo's own hook (husky, lefthook,
+# project checks — preserved there by the installer) still runs.
+# Escape hatch (use rarely, deliberately): git commit --no-verify
+
+# symbolic-ref reports the branch even on an unborn branch (before the first
+# commit), where rev-parse --abbrev-ref would return "HEAD".
+branch=$(git symbolic-ref --short HEAD 2>/dev/null)
+
+# Resolve the same committed/local/global policy as the Claude PreToolUse hook,
+# so one setting governs every committer rather than the two guards disagreeing.
+#
+# A git hook cannot prompt — stdin is not a terminal during commit — so `ask`
+# and `remind` both degrade to a warning that lets the commit through. Only
+# `deny` blocks. That is the honest mapping: a hook that cannot ask should not
+# pretend to, and silently blocking when the policy said "ask" would be worse.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+POLICY_LIB="$SCRIPT_DIR/llmctx-policy.sh"
+[ -f "$POLICY_LIB" ] || POLICY_LIB="$SCRIPT_DIR/../lib/policy.sh"
+if [ -f "$POLICY_LIB" ]; then
+  # shellcheck source=../lib/policy.sh
+  source "$POLICY_LIB"
+  root="$(llmctx_policy_root 2>/dev/null || true)"
+  if [ -n "$root" ] && llmctx_policy_resolve "$root"; then
+    policy="$LLMCTX_BRANCH_POLICY"
+    protected="$LLMCTX_PROTECTED_BRANCHES"
+  else
+    echo "warning: llm-context policy is invalid; branch check skipped: $LLMCTX_POLICY_ERROR" >&2
+    policy=off
+    protected=""
+  fi
+else
+  echo "warning: llm-context policy library missing; branch check skipped" >&2
+  policy=off
+  protected=""
+fi
+
+is_protected=0
+for b in $protected; do
+  [ "$branch" = "$b" ] && is_protected=1 && break
+done
+
+if [ "$is_protected" = "1" ] && [ "$policy" != "off" ]; then
+  if [ "$policy" = "deny" ]; then
+    echo "blocked: on protected branch \"$branch\"." >&2
+    echo "branch first:  git checkout -b feature/<short-description>   then commit." >&2
+    echo "or relax it:   git config llmctx.branchPolicy remind" >&2
+    exit 1
+  fi
+  echo "warning: committing directly to protected branch \"$branch\"." >&2
+  echo "         convention is to branch first; set llmctx.branchPolicy=deny to enforce." >&2
+fi
+
+# Secrets backstop: scan staged changes when gitleaks is installed
+# (brew install gitleaks). Skipped silently when absent so client machines
+# without it aren't broken; the prose rule still applies.
+# Escape hatch for confirmed false positives: gitleaks:allow comment or
+# a repo .gitleaks.toml allowlist — prefer those over --no-verify.
+if command -v gitleaks >/dev/null 2>&1; then
+  # v8.19+ uses `gitleaks git --pre-commit`; older versions use `protect`.
+  if gitleaks help git >/dev/null 2>&1; then
+    scan="gitleaks git --pre-commit --staged --redact --no-banner"
+  else
+    scan="gitleaks protect --staged --redact --no-banner"
+  fi
+  if ! $scan >/dev/null 2>&1; then
+    echo "blocked: gitleaks found potential secrets in staged changes." >&2
+    echo "inspect:  $scan -v" >&2
+    exit 1
+  fi
+fi
+
+# Chain to the repo's own hook, if any: either a foreign hook the installer
+# preserved as pre-commit.local, or repo-specific checks added deliberately.
+hooks_dir=$(git rev-parse --git-path hooks)
+if [ -x "$hooks_dir/pre-commit.local" ]; then
+  exec "$hooks_dir/pre-commit.local" "$@"
+fi
+exit 0

@@ -1,0 +1,10 @@
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Inert credential placeholders in pinned upstream documentation"
+stopwords = [
+  "YOUR_API_TOKEN",
+  "sk_live_abc123",
+  "sk-live-abc123",
+]

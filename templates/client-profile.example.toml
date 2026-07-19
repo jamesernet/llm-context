@@ -1,0 +1,162 @@
+# Client profile — the canonical shape.
+#
+# THIS FILE IS THE PATTERN. Real profiles live in the workstation repo, at
+# config/clients/<slug>.toml, and are private to that machine. This copy exists
+# here because llm-context owns the reusable patterns; workstation owns the
+# instantiation.
+#
+# WHAT PROBLEM THIS SOLVES
+#
+# Onboarding a client currently means touching five places in five syntaxes:
+# a git includeIf, an .envrc, ~/.aws/config, ~/.kube/configs, and a hook install.
+# Nothing anywhere states "who is this client and how strict are we with them".
+# When an engagement ends, offboarding means remembering all five in reverse —
+# and the one you forget is the one that still has production access.
+#
+# One file per client. Every field below maps to a step in the onboarding
+# checklist that already exists; nothing here is speculative.
+#
+# STATUS: schema + documentation. There is no generator yet — see "Applying a
+# profile" at the bottom. The profile is currently a structured checklist rather
+# than an executable one. That is deliberate: the generator should be written
+# against two real clients, not imagined ones.
+
+# ---------------------------------------------------------------------------
+[client]
+# ---------------------------------------------------------------------------
+slug = "acme"                # ~/repos/github.com/acme/** — the identity boundary
+name = "Acme Financial Ltd"
+status = "active"            # active | paused | offboarded
+
+# Inherit a preset from config/profiles/<name>.toml. Resolution order is
+# preset -> this file -> repo-local git config, so a client overrides the
+# preset and a single repo can override the client. Same layering as includeIf.
+extends = "regulated"
+
+# ---------------------------------------------------------------------------
+[identity]
+# ---------------------------------------------------------------------------
+# The email MUST be the address on the client's GitHub org, or commits show as
+# an unlinked author and signature verification fails. With useConfigOnly=true
+# a placeholder here does not fail loudly — it commits the wrong thing.
+email = "james@acmefinancial.com"
+
+# A REFERENCE, never a key. The private half stays in 1Password; nothing that
+# authenticates you is ever at rest in a repo. Resolve with `op read`.
+signingkey = "op://Acme/GitHub SSH/public key"
+
+# 1Password vault for this engagement. One vault per client makes offboarding a
+# single delete rather than a search.
+vault = "Acme"
+
+# ---------------------------------------------------------------------------
+[enforcement]
+# ---------------------------------------------------------------------------
+# One dial, because that is how the decision is actually made: "this is a
+# regulated client with real auditors" — not twelve independent switches.
+#
+#                    low        standard    high
+#   branch_policy    remind     ask         deny
+#   signing          optional   required    required
+#   secret_scan      warn       block       block + full history
+#   push             direct     direct      PR only
+#
+# Explicit keys below override the level. The dial is a default, not a cage.
+level = "high"
+
+# Consumed by both the Claude PreToolUse hook and the tool-agnostic git hook
+# (git config llmctx.branchPolicy). Stated here so one declaration governs both.
+branch_policy = "deny"
+
+# ---------------------------------------------------------------------------
+[aws]
+# ---------------------------------------------------------------------------
+# SSO only. No access keys, here or anywhere: SSO mints short-lived credentials
+# on demand, so a stolen laptop yields nothing once the session lapses. If a
+# client can only issue IAM keys, put an op:// reference here and inject it with
+# `op run` — never the key itself.
+sso_start_url = "https://acme.awsapps.com/start"
+sso_region = "eu-west-2"
+
+# What .envrc binds on `cd` — deliberately the READ-ONLY profile. You should
+# never acquire the ability to destroy production by changing directory.
+default_profile = "acme-dev"
+
+# What `assume` steps up to, explicitly and consciously. Never referenced by any
+# .envrc. Reaching this should always be something you typed on purpose.
+write_profile = "acme-prod-admin"
+
+# ---------------------------------------------------------------------------
+[collaboration]
+# ---------------------------------------------------------------------------
+# True when the repos are shared with the client's own engineers — which
+# changes how invasive it is safe to be with their tooling.
+shared_with_humans = true
+
+# chain: preserve their existing hook and run ours after it (husky, lefthook,
+#        project checks keep working — never clobber another team's setup)
+# skip:  install nothing; rely on their CI. Correct when the repo already has a
+#        hook framework whose core.hooksPath would make ours silently inert.
+hooks = "chain"
+
+push_policy = "pr-only"      # pr-only | direct
+
+# ---------------------------------------------------------------------------
+[ai]
+# ---------------------------------------------------------------------------
+# The field with contractual consequences, and the one nothing on the machine
+# currently encodes. Some regulated clients prohibit sending source to
+# third-party model providers. "Which clients am I allowed to run an agent
+# against" should be a lookup, not a memory.
+agents_allowed = true
+
+# false => this tree must not be sent to a hosted model. Enforce with a
+# PreToolUse hook that denies Read/Grep/Edit under this client's path, the same
+# mechanism as branch-policy.sh.
+allow_code_egress = true
+
+# Never send these even when egress is allowed. Globs, relative to repo root.
+redact = ["**/*.pem", "**/*.key", "docs/legal/**", "**/customer-data/**"]
+
+# ---------------------------------------------------------------------------
+[infra]
+# ---------------------------------------------------------------------------
+# One kubeconfig per client, merged via KUBECONFIG (see config/zsh/tools.zsh).
+# Adding a client is dropping a file in; offboarding is deleting one.
+kubeconfig = "~/.kube/configs/acme.yaml"
+
+# Dedicated browser profile so a client's console cannot be open in a tab you
+# think belongs to someone else. `assume -c` opens into this.
+browser_profile = "Acme"
+
+# ===========================================================================
+# APPLYING A PROFILE
+# ===========================================================================
+#
+# There is no generator yet. Today this file is the structured version of the
+# onboarding checklist in the workstation README — fill it in FIRST, then work
+# through the steps, using it as the source for every value.
+#
+# When a generator is written (against real clients, not this example), it
+# should emit rather than interpret, so that everything stays greppable and
+# debuggable — the same model as llm-context's build-adapters.sh:
+#
+#   config/git/config-<slug>        identity + signingkey
+#   config/git/config               the includeIf entry
+#   config/git/allowed_signers      the signing key under this email
+#   ~/.aws/config                   sso-session + profile blocks
+#   <repo>/.envrc                   AWS_PROFILE, KUBECONFIG
+#   git config llmctx.branchPolicy  in each of the client's repos
+#
+# ...plus an `--check` mode reporting drift, so a hand-edit downstream is
+# caught rather than silently overwritten.
+#
+# OFFBOARDING is the half people skip, and the reason this file is worth having:
+# it is the complete list of what was granted. status = "offboarded" should
+# revoke every line above — vault deleted, kubeconfig removed, SSO profile
+# dropped, browser profile deleted, includeIf removed.
+#
+# Note the existing tripwire: with useConfigOnly = true, any repo left behind
+# after its includeIf is gone REFUSES to commit. The identity guard doubles as
+# an offboarding check. That is not a coincidence — it is why the friction is
+# worth it.
