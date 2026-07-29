@@ -51,6 +51,11 @@ These are referenced by the skills above; imported so the set is self-contained.
 
 _`review` was dropped 2026-07 — `implement` uses the built-in `/code-review`; it lives in git history if ever needed._
 
+## product & UX (mine — not upstream)
+| skill | invoke | scope |
+|---|---|---|
+| [product-ux-review](product-ux-review/) | `/product-ux-review` · auto | browser-driven UX audit; escape/recovery, forms, keyboard, responsive, consistency; supporting [interaction-checklist](product-ux-review/references/interaction-checklist.md), [report-template](product-ux-review/references/report-template.md) |
+
 ## payments & fintech (mine — not upstream)
 | skill | invoke | scope |
 |---|---|---|
