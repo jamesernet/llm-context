@@ -48,7 +48,71 @@ POLICY_LIB="$SCRIPT_DIR/llmctx-policy.sh"
 # shellcheck source=../lib/policy.sh
 source "$POLICY_LIB"
 
-repo="$(llmctx_policy_root 2>/dev/null || true)"
+tool="$(printf '%s' "$input" | jq -r '.tool_name // ""')"
+
+# Only mutating tools are in scope. This deliberately re-checks the tool name
+# rather than trusting the `matcher` in settings.json to be correct: matchers
+# get widened over time, and a guard that blocks Read the moment someone adds a
+# tool to that regex is a guard that gets deleted.
+case "$tool" in
+  Edit | Write | NotebookEdit | Bash) ;;
+  *) exit 0 ;;
+esac
+
+if [[ "$tool" == "Bash" ]]; then
+  cmd="$(printf '%s' "$input" | jq -r '.tool_input.command // ""')"
+fi
+
+# SCOPE BY WHAT IS BEING CHANGED, NOT BY WHERE THE SESSION HAPPENS TO STAND.
+#
+# This used to resolve the repository from the process cwd and judge that
+# repository's branch, whatever the tool was actually touching. Two false
+# denials followed, both hard blocks under `deny`, and neither action broke the
+# rule:
+#
+#   - an Edit to a file in /tmp, which is not in any git repository at all
+#   - `git push` to a DIFFERENT repository, from a feature branch
+#
+# both denied because an unrelated repository the session was cd'ed into had
+# main checked out. That is how a guard earns its bypass — and the bypass
+# disables the guard you actually wanted.
+#
+# So resolve the repository from the target: the file being written, or the
+# directory a `git -C` names. Falling back to cwd is right for a bare `git
+# commit`, which really does act on the session's repository.
+scope_dir=""
+case "$tool" in
+  Edit | Write | NotebookEdit)
+    target="$(printf '%s' "$input" | jq -r '.tool_input.file_path // ""')"
+    if [[ -n "$target" ]]; then
+      [[ "$target" == /* ]] || target="$(printf '%s' "$input" | jq -r '.cwd // "."')/$target"
+      # A new file's parent may not exist yet — walk up to the deepest ancestor
+      # that does, so `git -C` has somewhere real to stand.
+      scope_dir="$(dirname "$target")"
+      while [[ ! -d "$scope_dir" && "$scope_dir" != "/" && "$scope_dir" != "." ]]; do
+        scope_dir="$(dirname "$scope_dir")"
+      done
+    fi
+    ;;
+  Bash)
+    # `git -C <dir> …` states its own target. Anything else acts where the
+    # session is.
+    scope_dir="$(printf '%s' "$cmd" | sed -n 's/.*git[[:space:]]\{1,\}-C[[:space:]]\{1,\}\([^[:space:]]\{1,\}\).*/\1/p' | head -1)"
+    ;;
+esac
+
+# Fall back to the cwd the HOOK PAYLOAD reports, not the process's own. They are
+# normally the same, but depending on the process cwd made this untestable: the
+# suite runs the hook from wherever the runner stands, so a `git commit` case
+# silently resolved against the test repository instead of the session's and
+# passed while doing nothing. Reading it from the payload makes the input
+# complete, which is the only way a fixture can exercise it.
+[[ -n "$scope_dir" ]] || scope_dir="$(printf '%s' "$input" | jq -r '.cwd // "."')"
+[[ -d "$scope_dir" ]] || scope_dir="."
+
+repo="$(git -C "$scope_dir" rev-parse --show-toplevel 2>/dev/null || true)"
+# Not a git repository — a scratch file, a plan, global config. None of our
+# business, and previously the single most common false denial.
 [[ -n "$repo" ]] || exit 0
 # Invalid policy must not wedge every edit. doctor/repo diff reports the error.
 llmctx_policy_resolve "$repo" || exit 0
@@ -60,7 +124,7 @@ policy="$LLMCTX_BRANCH_POLICY"
 # string "HEAD", so a brand new `main` reads as unprotected and the very first
 # commit of a repo sails past the guard. symbolic-ref resolves it correctly.
 # It exits non-zero on a detached HEAD, which is not a protected branch anyway.
-branch="$(git symbolic-ref --short HEAD 2>/dev/null || true)"
+branch="$(git -C "$repo" symbolic-ref --short HEAD 2>/dev/null || true)"
 [[ -n "$branch" ]] || exit 0 # not a git repo, or detached HEAD
 
 protected="$LLMCTX_PROTECTED_BRANCHES"
@@ -74,27 +138,15 @@ done
 # the protected branch — that is what resolving a conflict IS. Worse, the advice
 # this hook gives is actively wrong mid-operation: branching now would strand the
 # in-flight merge. Stay out of the way until it finishes.
-git_dir="$(git rev-parse --git-dir 2>/dev/null || echo .git)"
+git_dir="$(git -C "$repo" rev-parse --git-path . 2>/dev/null || echo "$repo/.git")"
 for state in MERGE_HEAD REBASE_HEAD CHERRY_PICK_HEAD REVERT_HEAD BISECT_LOG rebase-merge rebase-apply; do
   [[ -e "$git_dir/$state" ]] && exit 0
 done
 
-# Only mutating tools are in scope. This deliberately re-checks the tool name
-# rather than trusting the `matcher` in settings.json to be correct: matchers
-# get widened over time, and a guard that blocks Read the moment someone adds a
-# tool to that regex is a guard that gets deleted.
-#
 # For Bash, only git commit/push matter. Everything else on a protected branch
 # is fine — reading, building, running tests, and `git checkout -b` itself,
 # which must not be blocked or the suggested fix would be unreachable.
-tool="$(printf '%s' "$input" | jq -r '.tool_name // ""')"
-case "$tool" in
-  Edit | Write | NotebookEdit | Bash) ;;
-  *) exit 0 ;;
-esac
-
 if [[ "$tool" == "Bash" ]]; then
-  cmd="$(printf '%s' "$input" | jq -r '.tool_input.command // ""')"
   # Match `git commit`/`git push` only where a command can actually START:
   # beginning of string, or after ; && || | & or a newline. Plain substring
   # matching also fired on `echo "run git commit first"`, a heredoc mentioning
@@ -104,6 +156,24 @@ if [[ "$tool" == "Bash" ]]; then
   if ! printf '%s' "$cmd" |
     grep -qE '(^|[;&|]|&&|\|\||[[:space:]]&|^[[:space:]]*)[[:space:]]*(sudo[[:space:]]+|env[[:space:]]+[^[:space:]]+=[^[:space:]]*[[:space:]]+)*git[[:space:]]+(commit|push)\b'; then
     exit 0
+  fi
+
+  # A push that NAMES an unprotected branch is not a trunk violation — pushing
+  # `feature/x` from a checkout that happens to sit on main is the normal way to
+  # publish work, and denying it was the second false block this hook produced.
+  # Only an explicit refspec counts: a bare `git push` on a protected branch
+  # still pushes the protected branch, and is still caught.
+  if printf '%s' "$cmd" | grep -qE 'git[[:space:]]+(-C[[:space:]]+[^[:space:]]+[[:space:]]+)?push\b'; then
+    pushed_ref="$(printf '%s' "$cmd" |
+      sed -n 's/.*push[[:space:]]\{1,\}\(-[^[:space:]]*[[:space:]]\{1,\}\)*[^[:space:]-][^[:space:]]*[[:space:]]\{1,\}\([^[:space:]]\{1,\}\).*/\2/p' | head -1)"
+    pushed_ref="${pushed_ref#*:}"   # src:dst — the destination is what lands
+    if [[ -n "$pushed_ref" ]]; then
+      ref_protected=0
+      for b in $LLMCTX_PROTECTED_BRANCHES; do
+        [[ "$pushed_ref" == "$b" || "$pushed_ref" == "refs/heads/$b" ]] && ref_protected=1 && break
+      done
+      [[ "$ref_protected" -eq 1 ]] || exit 0
+    fi
   fi
 fi
 
