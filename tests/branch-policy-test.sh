@@ -91,4 +91,48 @@ payload="$(jq -nc --arg c "$repo" --arg cmd "git -C $other push -u origin featur
   fail "denied a push to another repository that is on a feature branch"
 rm -rf "$other"
 
+# --- leading `cd <dir> &&` --------------------------------------------------
+#
+# The most common way an agent operates on another repository, and it was being
+# judged against wherever the session stood. Leading only, one level: chasing
+# `cd` through a pipeline or a subshell needs a shell parser, and a guard that
+# half-parses shell is wrong in both directions.
+#
+# GC is built rather than written literally so this file can be edited and run
+# by an agent without the string tripping the guard under test.
+GC="git"" commit -m x"
+
+feature_repo="$(mktemp -d)"
+git -C "$feature_repo" init -q -b main
+git -C "$feature_repo" symbolic-ref HEAD refs/heads/feature/elsewhere
+printf '%s\n' '{"schemaVersion":1,"profile":"client"}' >"$feature_repo/.llmctx.json"
+
+bash_payload() { jq -nc --arg c "$1" --arg cmd "$2" \
+  '{tool_name:"Bash",session_id:"t",tool_input:{command:$cmd},cwd:$c}'; }
+
+# cd into a repo on a feature branch: allowed, whatever this repo is on.
+[[ -z "$(hook_with "$(bash_payload "$repo" "cd $feature_repo && $GC")")" ]] ||
+  fail "denied a commit in a repo on a feature branch reached by a leading cd"
+
+# Quoted path, and `;` as the separator, are the same case.
+[[ -z "$(hook_with "$(bash_payload "$repo" "cd \"$feature_repo\" && $GC")")" ]] ||
+  fail "denied a leading cd with a quoted path"
+[[ -z "$(hook_with "$(bash_payload "$repo" "cd $feature_repo ; $GC")")" ]] ||
+  fail "denied a leading cd separated by ;"
+
+# cd into a repo on a PROTECTED branch: still denied. The rule follows the
+# target, which is the whole point — it does not simply stop applying.
+[[ "$(decision "$(bash_payload "$feature_repo" "cd $repo && $GC")")" == deny ]] ||
+  fail "allowed a commit in a protected checkout reached by a leading cd"
+
+# A cd that is not leading is not followed. Anything else needs a shell parser.
+[[ "$(decision "$(bash_payload "$repo" "ls && cd $feature_repo && $GC")")" == deny ]] ||
+  fail "followed a non-leading cd"
+
+# A cd to somewhere that does not exist falls back to the session, not to allow.
+[[ "$(decision "$(bash_payload "$repo" "cd /no/such/dir && $GC")")" == deny ]] ||
+  fail "a cd to a nonexistent directory did not fall back to the session repo"
+
+rm -rf "$feature_repo"
+
 echo "branch policy tests: passed"

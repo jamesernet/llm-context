@@ -95,9 +95,42 @@ case "$tool" in
     fi
     ;;
   Bash)
-    # `git -C <dir> …` states its own target. Anything else acts where the
-    # session is.
+    # `git -C <dir> …` states its own target.
     scope_dir="$(printf '%s' "$cmd" | sed -n 's/.*git[[:space:]]\{1,\}-C[[:space:]]\{1,\}\([^[:space:]]\{1,\}\).*/\1/p' | head -1)"
+
+    # Failing that, honour a LEADING `cd <dir> &&`. By a wide margin the most
+    # common way an agent operates on another repository, and it was still
+    # judged against wherever the session happened to stand — denying
+    # `cd other-repo && git commit` because THIS repo is on main is the same
+    # false positive as before, one idiom later.
+    #
+    # Leading only, one level, and the `cd` must be the first thing in the
+    # command. Chasing `cd` through a pipeline, a subshell, or a second `cd`
+    # needs a shell parser, and a guard that half-parses shell is wrong in both
+    # directions: it lets real violations through while inventing new false
+    # ones. When the pattern is not obvious, fall through to the session cwd,
+    # which is the conservative answer.
+    if [[ -z "$scope_dir" ]]; then
+      # `sed -E`, not BRE. BSD sed — which is what macOS ships, and this repo
+      # supports macOS first — has no `\|` alternation in basic expressions, so
+      # the BRE form matched nothing here and silently fell through to the cwd.
+      # It failed open, which is the safe direction, but it also meant the fix
+      # did nothing at all on the machine it was written on.
+      cd_dir="$(printf '%s' "$cmd" |
+        sed -E -n "s/^[[:space:]]*cd[[:space:]]+[\"']?([^\"';&|]*[^\"';&| ])[\"']?[[:space:]]*(&&|;).*/\1/p" | head -1)"
+      # `cd ~/x` is written far more often than the expanded path. Expanding a
+      # leading `~/` keeps this to string work rather than eval.
+      case "$cd_dir" in
+        "~/"*) cd_dir="$HOME/${cd_dir#\~/}" ;;
+        "~") cd_dir="$HOME" ;;
+      esac
+      # A relative cd is relative to the session, so resolve it from there.
+      case "$cd_dir" in
+        "" | /*) ;;
+        *) cd_dir="$(printf '%s' "$input" | jq -r '.cwd // "."')/$cd_dir" ;;
+      esac
+      [[ -n "$cd_dir" && -d "$cd_dir" ]] && scope_dir="$cd_dir"
+    fi
     ;;
 esac
 
