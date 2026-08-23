@@ -10,7 +10,7 @@ usage:
   llmctx version [--json]
   llmctx doctor [--json|--quiet]
   llmctx explain <profile|branchPolicy|protectedBranches> [repo]
-  llmctx skills install [--dev]
+  llmctx skills install [--dev] [--bundle <name>[,<name>...]]
   llmctx vendor check
   llmctx repo diff [repo] [--json]
   llmctx publish sync [--check]

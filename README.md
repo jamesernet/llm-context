@@ -38,7 +38,7 @@ bin/llmctx install
 bin/llmctx doctor [--json|--quiet]
 bin/llmctx repo diff [repo] [--json]
 bin/llmctx explain <profile|branchPolicy|protectedBranches> [repo]
-bin/llmctx skills install [--dev]
+bin/llmctx skills install [--dev] [--bundle <name>]
 bin/llmctx vendor check
 bin/llmctx publish sync [--check]
 ```
@@ -46,6 +46,12 @@ bin/llmctx publish sync [--check]
 Use `doctor` for machine-level state. Use `repo diff` inside a project to compare that repository with the standard. Both are read-only and return non-zero when required attention is found. JSON output is intended for workstation automation.
 
 `skills install` uses managed copies by default. `--dev` is an explicit development mode that links directly to this checkout so skill edits take effect immediately.
+
+`--bundle` narrows what lands in `~/.claude/skills` to a named group from [`skills/bundles.conf`](skills/bundles.conf) — `core`, `website`, `webapp`, `platform`, `fintech`, `cloudflare`, or several comma-separated. The default is `all`, so existing installs are unchanged.
+
+Narrowing here is the only thing that makes skill selection real. A project's own `.claude/skills/` is **additive** and cannot hide a globally installed skill, so until the global set is reduced every project sees everything. The choice persists in `git config --global llmctx.skillBundle`; without that, the next `llmctx install` would silently widen it back to `all`. `llmctx doctor` reports the active bundle, so "absent on purpose" stays distinguishable from "install went wrong".
+
+An unknown bundle name is refused and changes nothing — resolving it to the empty set would prune every installed skill over one missing letter.
 
 ## Data flow
 

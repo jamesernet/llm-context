@@ -188,6 +188,30 @@ check_skill_target() {
 if [[ "$hash_available" -eq 1 ]] && build_skill_catalog; then
   check_skill_target "$HOME/.claude/skills" claude-skills
   check_skill_target "$HOME/.codex/skills" codex-skills
+
+  # Report the active bundle. `all` is the default and needs no comment; a
+  # narrowed one does, because the whole point of narrowing is that some skills
+  # are deliberately absent — and "absent on purpose" must be distinguishable
+  # from "install went wrong" without reading two files to find out.
+  active_bundle="$(git config --global --get llmctx.skillBundle 2>/dev/null || true)"
+  if [[ -z "$active_bundle" || "$active_bundle" == all ]]; then
+    add_check skill-bundle PASS "all skills install globally" ""
+  elif [[ ! -f "$SRC/skills/bundles.conf" ]]; then
+    add_check skill-bundle FAIL "llmctx.skillBundle=$active_bundle but no skills/bundles.conf in this release" \
+      "git config --global --unset llmctx.skillBundle"
+  else
+    unknown=""
+    IFS=',' read -r -a _bl <<<"$active_bundle"
+    for _b in "${_bl[@]}"; do
+      grep -qE "^${_b}\|" "$SRC/skills/bundles.conf" || unknown="$unknown $_b"
+    done
+    if [[ -n "$unknown" ]]; then
+      add_check skill-bundle FAIL "llmctx.skillBundle names unknown bundle(s):$unknown" \
+        "git config --global llmctx.skillBundle <name>"
+    else
+      add_check skill-bundle PASS "bundle '$active_bundle' — some skills are absent on purpose" ""
+    fi
+  fi
 else
   add_check claude-skills FAIL "managed skills could not be inventoried" "$SRC/bin/llmctx skills install"
   add_check codex-skills FAIL "managed skills could not be inventoried" "$SRC/bin/llmctx skills install"
