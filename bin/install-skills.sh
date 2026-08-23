@@ -7,18 +7,28 @@ SRC="$(cd "$SCRIPT_DIR/.." && pwd)"
 source "$SCRIPT_DIR/lib/skills.sh"
 
 mode=copy
-case "${1:-}" in
-  "") ;;
-  --dev) mode=dev ;;
-  *)
-    echo "usage: llmctx skills install [--dev]" >&2
-    exit 2
-    ;;
-esac
-[[ "$#" -le 1 ]] || {
-  echo "usage: llmctx skills install [--dev]" >&2
-  exit 2
-}
+bundle=""
+while [[ "$#" -gt 0 ]]; do
+  case "$1" in
+    --dev) mode=dev; shift ;;
+    --bundle) bundle="${2:-}"; shift 2 ;;
+    --bundle=*) bundle="${1#--bundle=}"; shift ;;
+    *)
+      echo "usage: llmctx skills install [--dev] [--bundle <name>]" >&2
+      exit 2
+      ;;
+  esac
+done
+
+# The chosen bundle is machine state, not repository state, so it lives in
+# global git config alongside the other llmctx.* keys rather than in a file this
+# repository would then have to gitignore. Without it, `llmctx install` would
+# silently widen the set back to `all` on the next run — which is exactly the
+# failure that makes people stop trusting a narrowing tool.
+if [[ -z "$bundle" ]]; then
+  bundle="$(git config --global --get llmctx.skillBundle 2>/dev/null || true)"
+fi
+[[ -n "$bundle" ]] || bundle=all
 
 command -v jq >/dev/null 2>&1 || {
   echo "error: jq is required to install managed skills" >&2
@@ -128,18 +138,76 @@ install_dev_link() {
 }
 
 skill_names="$(mktemp "${TMPDIR:-/tmp}/llmctx-skill-names.XXXXXX")"
-trap 'rm -f "$skill_names"' EXIT
+available="$(mktemp "${TMPDIR:-/tmp}/llmctx-skill-avail.XXXXXX")"
+seen_bundles="$(mktemp "${TMPDIR:-/tmp}/llmctx-skill-seen.XXXXXX")"
+trap 'rm -f "$skill_names" "$available" "$seen_bundles"' EXIT
 for source_dir in "$SRC"/skills/*/ "$SRC"/vendor/*/; do
   [[ -f "$source_dir/SKILL.md" ]] || continue
-  basename "$source_dir" >>"$skill_names"
+  basename "$source_dir" >>"$available"
 done
-duplicate_names="$(LC_ALL=C sort "$skill_names" | uniq -d)"
+
+bundles_file="$SRC/skills/bundles.conf"
+
+expand_bundle() {
+  local b="$1" name skill
+  grep -qxF "$b" "$seen_bundles" && return 0
+  printf '%s\n' "$b" >>"$seen_bundles"
+  while IFS='|' read -r name skill; do
+    [[ "$name" == "$b" ]] || continue
+    case "$skill" in
+      '+'*) expand_bundle "${skill#+}" ;;
+      '') ;;
+      *) printf '%s\n' "$skill" >>"$skill_names" ;;
+    esac
+  done <"$bundles_file"
+}
+
+if [[ "$bundle" == all ]]; then
+  cp "$available" "$skill_names"
+else
+  [[ -f "$bundles_file" ]] || {
+    echo "error: no $bundles_file" >&2
+    exit 1
+  }
+  # Validate each name in a comma-separated list BEFORE resolving any of them.
+  # An unknown bundle must fail loudly and change nothing: resolving it to the
+  # empty set would prune every installed skill over one missing letter.
+  # Validating the joined string instead of its parts is what made `webapp,
+  # fintech` report itself as an unknown bundle.
+  IFS=',' read -r -a bundle_list <<<"$bundle"
+  for b in "${bundle_list[@]}"; do
+    grep -qE "^${b}\|" "$bundles_file" || {
+      echo "error: unknown bundle '$b'" >&2
+      echo "available: $(grep -v '^#' "$bundles_file" | grep -v '^$' | cut -d'|' -f1 | sort -u | tr '\n' ' ')all" >&2
+      exit 2
+    }
+  done
+  for b in "${bundle_list[@]}"; do expand_bundle "$b"; done
+  # A bundle naming a skill this release does not ship is a stale bundles.conf,
+  # not a reason to fail the install — report it and carry on.
+  while IFS= read -r want; do
+    grep -qxF "$want" "$available" || echo "warning: bundle names unknown skill '$want'" >&2
+  done < <(LC_ALL=C sort -u "$skill_names")
+  LC_ALL=C sort -u "$skill_names" -o "$skill_names"
+  comm -12 "$skill_names" <(LC_ALL=C sort -u "$available") >"$skill_names.f"
+  mv "$skill_names.f" "$skill_names"
+fi
+# Duplicates are checked against the WHOLE catalogue, not the selected set: the
+# namespace is flat across skills/ and vendor/, so a collision is a packaging
+# fault regardless of which bundle is installed today. Checking only the
+# selection would let one ship and surface later, for whoever first picks a
+# bundle containing both.
+duplicate_names="$(LC_ALL=C sort "$available" | uniq -d)"
 [[ -z "$duplicate_names" ]] || {
   echo "error: duplicate skill names:" >&2
   echo "$duplicate_names" >&2
   exit 1
 }
 LC_ALL=C sort -o "$skill_names" "$skill_names"
+
+if [[ "$bundle" != all ]]; then
+  echo "bundle: $bundle ($(wc -l <"$skill_names" | tr -d ' ') of $(wc -l <"$available" | tr -d ' ') skills)"
+fi
 
 failures=0
 targets=("$HOME/.claude/skills" "$HOME/.codex/skills")
@@ -163,6 +231,7 @@ for target in "${targets[@]}"; do
     [[ -f "$source_dir/SKILL.md" ]] || continue
     source_dir="${source_dir%/}"
     name="$(basename "$source_dir")"
+    grep -Fxq "$name" "$skill_names" || continue
     source_path="${source_dir#"$SRC/"}"
     destination="$target/$name"
     if [[ "$mode" == dev ]]; then

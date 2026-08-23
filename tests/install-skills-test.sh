@@ -63,4 +63,55 @@ if HOME="$dev_home" "$fixture/bin/llmctx" skills install --unknown >/dev/null 2>
   fail "unknown option was accepted"
 fi
 
+# --- bundles ----------------------------------------------------------------
+#
+# Narrowing must actually narrow, and must PRUNE what it drops — an install that
+# only ever adds cannot reduce anything, which was the whole point.
+
+bhome="$tmp/bundle-home"
+rm -rf "$bhome" && mkdir -p "$bhome"
+
+HOME="$bhome" "$SRC/bin/install-skills.sh" >/dev/null 2>&1 || fail "default install failed"
+all_n="$(find "$bhome/.claude/skills" -maxdepth 1 -mindepth 1 -type d | wc -l | tr -d ' ')"
+[ "$all_n" -gt 0 ] || fail "default install produced no skills"
+
+HOME="$bhome" "$SRC/bin/install-skills.sh" --bundle core >/dev/null 2>&1 || fail "--bundle core failed"
+core_n="$(find "$bhome/.claude/skills" -maxdepth 1 -mindepth 1 -type d | wc -l | tr -d ' ')"
+[ "$core_n" -lt "$all_n" ] || fail "core bundle did not narrow the installed set ($core_n vs $all_n)"
+[ -d "$bhome/.claude/skills/codebase-design" ] || fail "core bundle is missing codebase-design"
+[ -d "$bhome/.claude/skills/kyc-aml-review" ] && fail "core bundle installed a fintech skill"
+
+# Inclusion is transitive: website pulls in core.
+HOME="$bhome" "$SRC/bin/install-skills.sh" --bundle website >/dev/null 2>&1 || fail "--bundle website failed"
+[ -d "$bhome/.claude/skills/product-ux-review" ] || fail "website bundle is missing product-ux-review"
+[ -d "$bhome/.claude/skills/codebase-design" ] || fail "website bundle did not include core transitively"
+
+# Comma-separated bundles union rather than being read as one name.
+HOME="$bhome" "$SRC/bin/install-skills.sh" --bundle webapp,fintech >/dev/null 2>&1 || fail "comma-separated bundles failed"
+[ -d "$bhome/.claude/skills/kyc-aml-review" ] || fail "second bundle in the list was not applied"
+[ -d "$bhome/.claude/skills/product-ux-review" ] || fail "first bundle in the list was not applied"
+
+# A typo must change nothing. Resolving an unknown name to the empty set would
+# prune every installed skill.
+before="$(find "$bhome/.claude/skills" -maxdepth 1 -mindepth 1 -type d | wc -l | tr -d ' ')"
+if HOME="$bhome" "$SRC/bin/install-skills.sh" --bundle nope >/dev/null 2>&1; then
+  fail "an unknown bundle was accepted"
+fi
+after="$(find "$bhome/.claude/skills" -maxdepth 1 -mindepth 1 -type d | wc -l | tr -d ' ')"
+[ "$before" = "$after" ] || fail "an unknown bundle changed the installed set ($before -> $after)"
+if HOME="$bhome" "$SRC/bin/install-skills.sh" --bundle core,nope >/dev/null 2>&1; then
+  fail "an unknown bundle inside a list was accepted"
+fi
+[ "$before" = "$(find "$bhome/.claude/skills" -maxdepth 1 -mindepth 1 -type d | wc -l | tr -d ' ')" ] ||
+  fail "a bad name in a bundle list still changed the installed set"
+
+# Every bundle in the shipped file must resolve to at least one real skill.
+while IFS= read -r b; do
+  [ -n "$b" ] || continue
+  HOME="$bhome" "$SRC/bin/install-skills.sh" --bundle "$b" >/dev/null 2>&1 ||
+    fail "shipped bundle '$b' failed to install"
+  [ "$(find "$bhome/.claude/skills" -maxdepth 1 -mindepth 1 -type d | wc -l | tr -d ' ')" -gt 0 ] ||
+    fail "shipped bundle '$b' resolved to nothing"
+done < <(grep -v '^#' "$SRC/skills/bundles.conf" | grep -v '^$' | cut -d'|' -f1 | sort -u)
+
 echo "skill install tests: passed"
