@@ -61,23 +61,75 @@ else
   add_finding agents-file MISSING "canonical project instructions" missing repository "create and review $root/AGENTS.md"
 fi
 
-if [[ ! -f "$root/CLAUDE.md" ]]; then
-  add_finding claude-import MISSING "CLAUDE.md imports AGENTS.md" "CLAUDE.md missing" repository "create CLAUDE.md with @AGENTS.md"
+# Two conventions below are declarable rather than mandatory. Both were reported
+# as MISSING against repositories that had deliberately, and defensibly, chosen
+# otherwise — and a checker that a mature repository must ignore is a checker
+# nobody reads. Declaring the choice keeps it visible and intentional; the
+# defaults are unchanged, so a repository that says nothing is checked as before.
+policy_file="$root/.llmctx.json"
+declared() { # declared <key> -> value, empty when unset or unreadable
+  [[ -f "$policy_file" ]] || return 0
+  # `has($k)`, not `.[$k] // empty`. jq's `//` yields its right-hand side when
+  # the left is null OR false, so `"claudeImport": false` — the only value that
+  # key is ever set to — read back as unset and the opt-out silently did
+  # nothing. Distinguishing "absent" from "present and false" is the whole job.
+  jq -r --arg k "$1" 'if has($k) then (.[$k] | tostring) else empty end' "$policy_file" 2>/dev/null
+}
+
+claude_import="$(declared claudeImport)"
+if [[ "$claude_import" == "false" ]]; then
+  add_finding claude-import OVERRIDE "CLAUDE.md imports AGENTS.md" "declined; AGENTS.md is tool-neutral" repo-policy ""
+elif [[ ! -f "$root/CLAUDE.md" ]]; then
+  add_finding claude-import MISSING "CLAUDE.md imports AGENTS.md" "CLAUDE.md missing" repository \
+    "create CLAUDE.md with @AGENTS.md, or set \"claudeImport\": false in .llmctx.json"
 elif grep -qE '^@(\./)?AGENTS\.md[[:space:]]*$' "$root/CLAUDE.md"; then
   add_finding claude-import OK "CLAUDE.md imports AGENTS.md" present repository ""
 else
   add_finding claude-import MISSING "CLAUDE.md imports AGENTS.md" "import missing" repository "add @AGENTS.md to $root/CLAUDE.md"
 fi
 
-if [[ -f "$root/docs/briefs/README.md" ]]; then
-  add_finding briefs OK "docs/briefs convention" present repository ""
+briefs="$(declared briefs)"
+if [[ "$briefs" == "tracker" ]]; then
+  # A brief that restates its ticket is a second copy to drift. A repository may
+  # keep the narrative on the issue tracker instead; that is a position, not an
+  # omission, so it is recorded rather than flagged.
+  add_finding briefs OVERRIDE "briefs convention" "on the tracker, not in the tree" repo-policy ""
+elif [[ -f "$root/docs/briefs/README.md" ]]; then
+  add_finding briefs OK "briefs convention" "docs/briefs present" repository ""
 else
-  add_finding briefs MISSING "docs/briefs convention" missing repository "create and review $root/docs/briefs/README.md"
+  add_finding briefs MISSING "briefs convention" missing repository \
+    "create and review $root/docs/briefs/README.md, or set \"briefs\": \"tracker\" in .llmctx.json"
 fi
 
 hooks_path="$(git -C "$root" config --get core.hooksPath || true)"
 if [[ -n "$hooks_path" ]]; then
   add_finding git-hook UNKNOWN "llm-context branch backstop" "managed by core.hooksPath=$hooks_path" git-local "integrate the branch check through that hook framework"
+
+  # Do not stop here. Reporting only UNKNOWN and skipping the rest meant a
+  # repository with core.hooksPath set and NO branch enforcement at all printed
+  # "Result: compliant" — the one output nobody re-reads. Four repositories in
+  # this estate are in that state today: each has its own guard, so each is safe
+  # in practice, but none resolves llmctx policy, so .llmctx.json and
+  # `git config llmctx.branchPolicy` are inert there. Silence made that
+  # indistinguishable from working.
+  hp_dir="$hooks_path"
+  case "$hp_dir" in /*) ;; *) hp_dir="$root/$hp_dir" ;; esac
+  if ! [[ -d "$hp_dir" ]]; then
+    add_finding policy-enforcement MISSING "branch policy is enforced somewhere" \
+      "core.hooksPath points at $hooks_path, which does not exist" git-local \
+      "unset core.hooksPath, or create the directory it names"
+  elif grep -rqlE 'llmctx-policy|llmctx_policy_resolve' "$hp_dir" 2>/dev/null; then
+    add_finding policy-enforcement OK "branch policy is enforced somewhere" \
+      "hooks in $hooks_path resolve llmctx policy" git-local ""
+  elif grep -rqlE 'symbolic-ref|abbrev-ref|refusing to commit|protected branch' "$hp_dir" 2>/dev/null; then
+    add_finding policy-enforcement UNKNOWN "branch policy is enforced somewhere" \
+      "hooks in $hooks_path check a branch, but not via llmctx policy — .llmctx.json is inert here" git-local \
+      "source bin/lib/policy.sh from that hook, or drop core.hooksPath and use pre-commit.local"
+  else
+    add_finding policy-enforcement MISSING "branch policy is enforced somewhere" \
+      "no branch check found in $hooks_path" git-local \
+      "add a branch check to that hook framework, or unset core.hooksPath"
+  fi
 else
   hooks_dir="$(git -C "$root" rev-parse --git-path hooks)"
   case "$hooks_dir" in /*) ;; *) hooks_dir="$root/$hooks_dir" ;; esac
