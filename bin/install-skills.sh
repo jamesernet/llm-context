@@ -10,9 +10,18 @@ mode=copy
 bundle=""
 while [[ "$#" -gt 0 ]]; do
   case "$1" in
-    --dev) mode=dev; shift ;;
-    --bundle) bundle="${2:-}"; shift 2 ;;
-    --bundle=*) bundle="${1#--bundle=}"; shift ;;
+    --dev)
+      mode=dev
+      shift
+      ;;
+    --bundle)
+      bundle="${2:-}"
+      shift 2
+      ;;
+    --bundle=*)
+      bundle="${1#--bundle=}"
+      shift
+      ;;
     *)
       echo "usage: llmctx skills install [--dev] [--bundle <name>]" >&2
       exit 2
