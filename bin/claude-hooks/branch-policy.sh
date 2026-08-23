@@ -120,9 +120,17 @@ case "$tool" in
         sed -E -n "s/^[[:space:]]*cd[[:space:]]+[\"']?([^\"';&|]*[^\"';&| ])[\"']?[[:space:]]*(&&|;).*/\1/p" | head -1)"
       # `cd ~/x` is written far more often than the expanded path. Expanding a
       # leading `~/` keeps this to string work rather than eval.
+      #
+      # The tilde is held in a variable rather than written as a literal in the
+      # pattern: shellcheck reads `"~/"*)` as an attempt to expand a tilde in
+      # quotes (SC2088) and warns, which is a false positive here — we are
+      # matching a literal `~` the user typed, not asking the shell for $HOME —
+      # but a warning that has to be explained every time it is read is worse
+      # than the two lines that remove it.
+      tilde="~"
       case "$cd_dir" in
-        "~/"*) cd_dir="$HOME/${cd_dir#\~/}" ;;
-        "~") cd_dir="$HOME" ;;
+        "$tilde"/*) cd_dir="$HOME/${cd_dir#"$tilde"/}" ;;
+        "$tilde") cd_dir="$HOME" ;;
       esac
       # A relative cd is relative to the session, so resolve it from there.
       case "$cd_dir" in
@@ -199,7 +207,7 @@ if [[ "$tool" == "Bash" ]]; then
   if printf '%s' "$cmd" | grep -qE 'git[[:space:]]+(-C[[:space:]]+[^[:space:]]+[[:space:]]+)?push\b'; then
     pushed_ref="$(printf '%s' "$cmd" |
       sed -n 's/.*push[[:space:]]\{1,\}\(-[^[:space:]]*[[:space:]]\{1,\}\)*[^[:space:]-][^[:space:]]*[[:space:]]\{1,\}\([^[:space:]]\{1,\}\).*/\2/p' | head -1)"
-    pushed_ref="${pushed_ref#*:}"   # src:dst — the destination is what lands
+    pushed_ref="${pushed_ref#*:}" # src:dst — the destination is what lands
     if [[ -n "$pushed_ref" ]]; then
       ref_protected=0
       for b in $LLMCTX_PROTECTED_BRANCHES; do
