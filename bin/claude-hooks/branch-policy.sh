@@ -132,11 +132,45 @@ case "$tool" in
         "$tilde"/*) cd_dir="$HOME/${cd_dir#"$tilde"/}" ;;
         "$tilde") cd_dir="$HOME" ;;
       esac
+      # `cd "$WT"` where WT was assigned earlier IN THE SAME COMMAND.
+      #
+      # This is the dominant way an agent addresses a worktree — the path is
+      # long, so it goes in a variable first — and it defeated everything
+      # above: the capture returns the literal string `$WT`, which is not a
+      # directory, so the scope fell back to the session cwd. The result was a
+      # commit in a feature worktree judged against whatever the PRIMARY
+      # checkout happened to have checked out. Under a worktree-per-session
+      # flow the primary checkout sits on the trunk by design, so this denied
+      # every commit from every worktree, and the message pointed at branching
+      # when the session had already branched.
+      #
+      # Still string work, not shell: the assignment is literally present in
+      # the same command text, so this is a lookup rather than an evaluation.
+      # Only a leading run of assignments is honoured, and only a bare
+      # `$VAR`/`${VAR}` — a variable built from other variables, or set in an
+      # earlier tool call, is not visible here and correctly falls through.
+      case "$cd_dir" in
+        '$'* )
+          var="${cd_dir#'$'}"
+          var="${var#\{}"
+          var="${var%\}}"
+          # Assignments only at the start of a line, so `--flag=x` is not read
+          # as one. First wins, matching what the shell would have done.
+          assigned="$(printf '%s' "$cmd" |
+            sed -E -n "s/^[[:space:]]*${var}=[\"']?([^\"';&|]*[^\"';&| ])[\"']?[[:space:]]*\$/\1/p" | head -1)"
+          case "$assigned" in
+            "$tilde"/*) assigned="$HOME/${assigned#"$tilde"/}" ;;
+          esac
+          [[ -n "$assigned" && -d "$assigned" ]] && cd_dir="$assigned"
+          ;;
+      esac
+
       # A relative cd is relative to the session, so resolve it from there.
       case "$cd_dir" in
         "" | /*) ;;
         *) cd_dir="$(printf '%s' "$input" | jq -r '.cwd // "."')/$cd_dir" ;;
       esac
+
       [[ -n "$cd_dir" && -d "$cd_dir" ]] && scope_dir="$cd_dir"
     fi
     ;;
