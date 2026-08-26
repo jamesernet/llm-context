@@ -4,3 +4,4 @@
 !.env.example
 *.local
 *.tmp
+__pycache__/
