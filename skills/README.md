@@ -55,6 +55,7 @@ _`review` was dropped 2026-07 — `implement` uses the built-in `/code-review`; 
 | skill | invoke | scope |
 |---|---|---|
 | [product-ux-review](product-ux-review/) | `/product-ux-review` · auto | browser-driven UX audit; escape/recovery, forms, keyboard, responsive, consistency; supporting [interaction-checklist](product-ux-review/references/interaction-checklist.md), [report-template](product-ux-review/references/report-template.md) |
+| [metadata-audit](metadata-audit/) | `/metadata-audit` · auto | gated audit of a page's machine-readable layer; robots/canonical/AI-crawler posture, llms.txt, OG/Twitter, JSON-LD; supporting [decision-tree](metadata-audit/references/decision-tree.md), [schema-by-page-type](metadata-audit/references/schema-by-page-type.md), [report-template](metadata-audit/references/report-template.md), [inventory.py](metadata-audit/scripts/inventory.py) |
 
 ## payments & fintech (mine — not upstream)
 | skill | invoke | scope |
