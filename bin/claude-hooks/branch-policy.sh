@@ -98,6 +98,16 @@ case "$tool" in
     # `git -C <dir> …` states its own target.
     scope_dir="$(printf '%s' "$cmd" | sed -n 's/.*git[[:space:]]\{1,\}-C[[:space:]]\{1,\}\([^[:space:]]\{1,\}\).*/\1/p' | head -1)"
 
+    # A bare `cd <dir>` on its own line counts too. sed reads line by line, so
+    # `$` here is end-of-LINE, and a `cd` terminated by a newline in a
+    # multi-line script is the same statement as one terminated by `&&` — the
+    # commands after it run in that directory either way. Requiring `&&`
+    # rejected the most ordinary shape a multi-line script has:
+    #
+    #     W=/repo-worktrees/feature-x
+    #     cd "$W"
+    #     git commit -m …
+    #
     # Failing that, honour a LEADING `cd <dir> &&`. By a wide margin the most
     # common way an agent operates on another repository, and it was still
     # judged against wherever the session happened to stand — denying
@@ -117,7 +127,7 @@ case "$tool" in
       # It failed open, which is the safe direction, but it also meant the fix
       # did nothing at all on the machine it was written on.
       cd_dir="$(printf '%s' "$cmd" |
-        sed -E -n "s/^[[:space:]]*cd[[:space:]]+[\"']?([^\"';&|]*[^\"';&| ])[\"']?[[:space:]]*(&&|;).*/\1/p" | head -1)"
+        sed -E -n "s/^[[:space:]]*cd[[:space:]]+[\"']?([^\"';&|]*[^\"';&| ])[\"']?[[:space:]]*(&&|;|$).*/\1/p" | head -1)"
       # `cd ~/x` is written far more often than the expanded path. Expanding a
       # leading `~/` keeps this to string work rather than eval.
       #

@@ -155,6 +155,19 @@ bash_payload() { jq -nc --arg c "$1" --arg cmd "$2" \
 [[ "$(decision "$(bash_payload "$repo" "$(printf 'cd "$NOPE" && %s' "$GC")")")" == deny ]] ||
   fail "an unassigned variable did not fall back to the session repo"
 
+# `cd <dir>` terminated by a newline rather than `&&`. The most ordinary shape a
+# multi-line script has, and requiring `&&` sent it to the session repo.
+[[ -z "$(hook_with "$(bash_payload "$repo" "$(printf 'cd %s\n%s' "$feature_repo" "$GC")")")" ]] ||
+  fail "denied a cd terminated by a newline"
+
+# The variable form of the same thing, which is what an agent actually writes.
+[[ -z "$(hook_with "$(bash_payload "$repo" "$(printf 'WT=%s\ncd "$WT"\n%s' "$feature_repo" "$GC")")")" ]] ||
+  fail "denied a variable cd terminated by a newline"
+
+# Still follows the target: newline-terminated cd into a protected checkout is denied.
+[[ "$(decision "$(bash_payload "$feature_repo" "$(printf 'cd %s\n%s' "$repo" "$GC")")")" == deny ]] ||
+  fail "allowed a commit in a protected checkout reached by a newline cd"
+
 rm -rf "$feature_repo"
 
 echo "branch policy tests: passed"
