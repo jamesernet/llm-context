@@ -133,6 +133,28 @@ bash_payload() { jq -nc --arg c "$1" --arg cmd "$2" \
 [[ "$(decision "$(bash_payload "$repo" "cd /no/such/dir && $GC")")" == deny ]] ||
   fail "a cd to a nonexistent directory did not fall back to the session repo"
 
+# `cd "$VAR"` where VAR was assigned earlier in the same command. The dominant
+# way an agent addresses a worktree, and until this was handled the capture
+# returned the literal string "$WT", failed the directory test, and fell back to
+# the session — denying every commit made from every worktree of a repo whose
+# primary checkout sat on the trunk.
+[[ -z "$(hook_with "$(bash_payload "$repo" "$(printf 'WT=%s\ncd "$WT" && %s' "$feature_repo" "$GC")")")" ]] ||
+  fail "denied a cd to a variable assigned in the same command"
+
+# Braced form.
+[[ -z "$(hook_with "$(bash_payload "$repo" "$(printf 'WT=%s\ncd "${WT}" && %s' "$feature_repo" "$GC")")")" ]] ||
+  fail "denied a cd to a braced variable"
+
+# Same idiom, but the target is on a protected branch: still denied. Resolving
+# the variable must not become a way past the rule.
+[[ "$(decision "$(bash_payload "$feature_repo" "$(printf 'WT=%s\ncd "$WT" && %s' "$repo" "$GC")")")" == deny ]] ||
+  fail "allowed a commit in a protected checkout reached by a variable cd"
+
+# A variable that was never assigned in this command is not guessable, so it
+# falls back to the session rather than inventing a target.
+[[ "$(decision "$(bash_payload "$repo" "$(printf 'cd "$NOPE" && %s' "$GC")")")" == deny ]] ||
+  fail "an unassigned variable did not fall back to the session repo"
+
 rm -rf "$feature_repo"
 
 echo "branch policy tests: passed"
