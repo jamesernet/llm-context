@@ -1,0 +1,165 @@
+---
+name: website-audit-package
+description: Assemble a multi-workstream website audit into one client-ready deliverable — a before/after evidence package with a fixed folder shape, three-state finding labels, a one-screen overview, and a hypotheses scorecard. Use when compiling screenshots, UX findings, performance numbers and metadata results into a single package; when producing a "before" record ahead of a redesign, migration, replatform or cutover; when a client asks what we found and what it will change; or when several separate audits need one cover, one index and one consistent register. Also use when a previous audit has gone stale and its findings need re-labelling against work already shipped.
+---
+
+# Website Audit Package
+
+Four separate audits produce four separate documents. A client receives one thing.
+This skill is the shape that turns the first into the second without losing the
+evidence, and without a document that quietly rots the week after it ships.
+
+The failure mode is not a missing finding. It is a package that reads as
+authoritative while describing a site that no longer exists.
+
+## The three-state rule
+
+**This is the load-bearing idea. Apply it before anything else.**
+
+Any site worth auditing is usually mid-project, so "is this still true?" has three
+answers, not two. Every finding carries one:
+
+| Label | Means |
+|---|---|
+| **Live** | Still true on the published site today |
+| **Fixed in source, awaiting publish** | Solved in the branch; invisible to users until release |
+| **Open** | Not yet addressed |
+
+Collapsing these produces two opposite errors in the same document: tickets raised
+for problems already solved, and no credit for work already done. On a project
+shipping daily, an audit two weeks old can be *more* wrong about progress than
+about defects.
+
+Get the state from the tracker and the source, never from the rendered site. A
+storefront looking broken is not evidence the fix is missing; it is evidence the
+fix has not published.
+
+## Shape
+
+```
+<yyyy-mm-dd>-<domain>/
+  README.md              front door: what, when, how to read, provenance
+  report/                the deliverable — client-facing
+    00-executive-summary.md      one page, plain English, no jargon
+    01-experience-review.md      what a user runs into
+    02-performance.md            load times and where the time goes
+    03-architecture-and-ia.md    structure, semantics, structured data, debt
+    04-agent-readability.md      what AI assistants can read
+    05-analytics.md              the visitor baseline
+    99-method-and-gaps.md        method, limits, corrections
+  overview/              published pages (see Deliverables)
+  evidence/              how to read the captures; raw analytics exports
+  internal/              analyst notes, case-study drafts — NOT client-facing
+  index.html             contact sheet          <- written by the capture tool
+  manifest.json          machine-readable index <- written by the capture tool
+  <set>/                 screenshots by set     <- written by the capture tool
+  raw/                   per-set capture records<- written by the capture tool
+```
+
+The split matters more than the filenames: **the evidence layer is machine-written
+and never hand-edited; the report layer sits on top and can be rewritten freely.**
+
+`internal/` exists so the wrong register cannot be handed over by accident. Notes
+written peer-to-peer, and any prospect-facing case-study draft, live there and stay
+out of the client index.
+
+## Sequence
+
+Run the constituent audits first, then compile. Compiling as you go produces a
+document that argues for findings instead of reporting them.
+
+1. **Capture** — [site-visual-baseline](../site-visual-baseline/). Full-page, three
+   viewports, filenames derived from URL and viewport so a later run aligns
+   file-for-file. This is what makes an after-column possible at all.
+2. **Experience** — [product-ux-review](../product-ux-review/). Measured in a
+   browser from computed styles, not judged from screenshots.
+3. **Performance** — [web-perf](../web-perf/). Capture desktop *and* mobile; the
+   gap between them is frequently the headline.
+4. **Machine readability** — [metadata-audit](../metadata-audit/). Structured data,
+   crawler files, `llms.txt`.
+5. **Analytics** — the client's own export. Usually arrives last; see Slots.
+6. **Compile** into the shape above.
+
+Steps 1–4 are independent and can run in any order or in parallel. Step 6 cannot
+start until at least the capture exists, because every report claim must point at
+a file.
+
+## The rules that make it reusable
+
+1. **Never hand-edit the evidence layer.** If a capture is wrong, re-run the
+   capture. Editing it destroys the one property that makes it evidence.
+2. **Every number traces** to a file in the evidence layer or a named, dated
+   source. No estimates. No silent rounding.
+3. **Three-state labels on every finding.** Always.
+4. **Measure before you opine.** Go looking for problems and you find opinions;
+   measure first and the problems introduce themselves.
+5. **Find a control group.** The most valuable thing in an audit is usually an
+   untouched surface — a stock template, an unedited section, a page nobody has
+   been near. It converts "this site is badly built" into "these edits broke it",
+   which is a completely different and far more actionable project.
+6. **State what you did not measure**, in the deliverable, not in a footnote.
+7. **Record your own corrections.** They calibrate how much of the rest to trust,
+   and an audit that never corrected itself has not been checked.
+8. **Separate client-facing from internal** at the folder level.
+
+## Deliverables beyond the documents
+
+Two published pages usually earn their place. Load the `artifact-design` skill
+before building either.
+
+**The overview.** One screen, plain English, client-facing. If a viewport
+constraint is agreed, it is binding and it is the first thing to break — so
+measure it rather than trusting it:
+
+```js
+const s = document.querySelector('.sheet');
+document.body.style.width = '1440px'; s.style.minHeight = '0';
+s.getBoundingClientRect().height;   // must stay under the budget
+```
+
+Four numbers well-presented beat twelve crammed. Anything needing more room is a
+special-analysis section, not a smaller font.
+
+**The hypotheses page.** What the work is predicted to do, written *before* the
+change ships. Each prediction names the metric it will be judged on, carries an
+explicit empty baseline slot, and states **how we would know we are wrong**. That
+last line is what makes it a prediction rather than a pitch. Add a confounders
+section — a single release is not an experiment, there is no control group, and
+saying so first is what makes the rest credible.
+
+## Slots
+
+Analytics almost always arrives after everything else. Do not wait, and do not
+guess — ship the section as an explicit slot naming exactly which reports to
+export and where they land. A visitor number nobody has seen undermines every
+measured number in the package.
+
+Two exports are worth naming specifically because they are rarely in a default
+report and often carry the commercial finding: the recurring-versus-one-time
+split, and the share of orders through accelerated checkout. The second is the
+measurable fingerprint of a broken primary buy path.
+
+## Traps
+
+**Measuring the wrong target.** Auditing the published site while the team works
+on an unpublished branch produces findings that are real and already fixed. State
+which target was measured, at the top, every time.
+
+**Transfer-size overstatement.** Image CDNs negotiate modern formats from request
+headers. Measure without browser `Accept` headers and a page can report several
+times its real weight. Any speed number quoted to a client must account for this.
+
+**Lab numbers read as field numbers.** Simulated performance runs are reliable
+about the *shape* of a problem — which pages, which phase, desktop versus mobile —
+and not about absolute seconds. Say so at the point of use, not once in an
+appendix.
+
+**Retracted findings.** When a finding turns out to be wrong, keep it in the
+document, marked retracted, with what was actually true. Deleting it hides that
+the audit corrects itself — and a recommendation to remove a working feature is
+exactly the kind of error a reader needs to see was caught.
+
+**Client material in git.** Screenshots and reports for a client are usually
+gitignored, correctly. That also means they have no history and no remote: they
+need a backup that is not the repository, and saying "it's in the repo folder" is
+not one.
