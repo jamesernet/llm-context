@@ -6,14 +6,21 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 usage() {
   cat <<'EOF'
 usage:
-  llmctx install
+  llmctx install [--account <name>]
   llmctx version [--json]
-  llmctx doctor [--json|--quiet]
+  llmctx doctor [--json|--quiet] [--account <name>]
   llmctx explain <profile|branchPolicy|protectedBranches> [repo]
-  llmctx skills install [--dev] [--bundle <name>[,<name>...]]
+  llmctx account list [--json]
+  llmctx account add <name> <dir>
+  llmctx account remove <name>
+  llmctx skills install [--dev] [--bundle <name>[,<name>...]] [--account <name>]
   llmctx vendor check
   llmctx repo diff [repo] [--json]
   llmctx publish sync [--check]
+
+`profile` is a REPOSITORY policy (personal|client). `account` is a Claude Code
+config directory — a separate login. Different things, deliberately different
+words.
 EOF
 }
 
@@ -34,6 +41,10 @@ case "$command_name" in
   explain)
     shift
     exec "$SCRIPT_DIR/explain-policy.sh" "$@"
+    ;;
+  account)
+    shift
+    exec "$SCRIPT_DIR/account.sh" "$@"
     ;;
   skills)
     [[ "${2:-}" == "install" ]] || {

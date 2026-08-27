@@ -5,13 +5,24 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SRC="$(cd "$SCRIPT_DIR/.." && pwd)"
 # shellcheck source=bin/lib/skills.sh
 source "$SCRIPT_DIR/lib/skills.sh"
+# shellcheck source=bin/lib/accounts.sh
+source "$SCRIPT_DIR/lib/accounts.sh"
 
 mode=copy
 bundle=""
+account=""
 while [[ "$#" -gt 0 ]]; do
   case "$1" in
     --dev)
       mode=dev
+      shift
+      ;;
+    --account)
+      account="${2:-}"
+      shift 2
+      ;;
+    --account=*)
+      account="${1#--account=}"
       shift
       ;;
     --bundle)
@@ -23,7 +34,7 @@ while [[ "$#" -gt 0 ]]; do
       shift
       ;;
     *)
-      echo "usage: llmctx skills install [--dev] [--bundle <name>]" >&2
+      echo "usage: llmctx skills install [--dev] [--bundle <name>] [--account <name>]" >&2
       exit 2
       ;;
   esac
@@ -218,8 +229,20 @@ if [[ "$bundle" != all ]]; then
   echo "bundle: $bundle ($(wc -l <"$skill_names" | tr -d ' ') of $(wc -l <"$available" | tr -d ' ') skills)"
 fi
 
+# One skills directory per registered Claude account, because the alternative
+# is a machine where `llmctx skills install` reports success and one account
+# has no skills at all — which is the state this replaced.
+accounts="$(llmctx_accounts_selected "$account")" || exit 1
+targets=()
+while IFS=$'\t' read -r account_name account_dir; do
+  [[ -n "$account_name" ]] || continue
+  targets+=("$account_dir/skills")
+done <<<"$accounts"
+# Codex has no config-directory switching, so it gets one copy — and a run
+# narrowed to a single Claude account is not about Codex at all.
+[[ -n "$account" ]] || targets+=("$HOME/.codex/skills")
+
 failures=0
-targets=("$HOME/.claude/skills" "$HOME/.codex/skills")
 for target in "${targets[@]}"; do
   mkdir -p "$target"
 
