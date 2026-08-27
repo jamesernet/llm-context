@@ -5,22 +5,39 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SRC="$(cd "$SCRIPT_DIR/.." && pwd)"
 # shellcheck source=bin/lib/skills.sh
 source "$SCRIPT_DIR/lib/skills.sh"
+# shellcheck source=bin/lib/accounts.sh
+source "$SCRIPT_DIR/lib/accounts.sh"
 
 output_json=0
 quiet=0
-for arg in "$@"; do
-  case "$arg" in
-    --json) output_json=1 ;;
-    --quiet) quiet=1 ;;
+account=""
+while [[ "$#" -gt 0 ]]; do
+  case "$1" in
+    --json)
+      output_json=1
+      shift
+      ;;
+    --quiet)
+      quiet=1
+      shift
+      ;;
+    --account)
+      account="${2:-}"
+      shift 2
+      ;;
+    --account=*)
+      account="${1#--account=}"
+      shift
+      ;;
     *)
-      echo "usage: llmctx doctor [--json|--quiet]" >&2
+      echo "usage: llmctx doctor [--json|--quiet] [--account <name>]" >&2
       exit 2
       ;;
   esac
 done
 
 if [[ "$output_json" -eq 1 && "$quiet" -eq 1 ]]; then
-  echo "usage: llmctx doctor [--json|--quiet]" >&2
+  echo "usage: llmctx doctor [--json|--quiet] [--account <name>]" >&2
   exit 2
 fi
 
@@ -70,7 +87,26 @@ else
   add_check dependency-sha256 FAIL "shasum and sha256sum are missing" "install a SHA-256 command, then rerun llmctx doctor"
 fi
 
-if "$SCRIPT_DIR/build-adapters.sh" --check >/dev/null 2>&1; then
+# Resolved before any check runs: an unreadable registry is itself the finding,
+# and every account-scoped check below would otherwise report a partial machine
+# as a healthy one.
+accounts=""
+accounts_error=""
+if ! accounts="$(llmctx_accounts_selected "$account" 2>&1)"; then
+  accounts_error="$accounts"
+  accounts=""
+fi
+
+if [[ -n "$accounts_error" ]]; then
+  add_check accounts FAIL "$accounts_error" "llmctx account list"
+else
+  add_check accounts PASS \
+    "Claude accounts: $(printf '%s\n' "$accounts" | cut -f1 | tr '\n' ' ' | sed 's/ $//')" ""
+fi
+
+adapter_check=("$SCRIPT_DIR/build-adapters.sh" --check)
+[[ -z "$account" ]] || adapter_check+=(--account "$account")
+if "${adapter_check[@]}" >/dev/null 2>&1; then
   add_check adapters PASS "managed adapters and settings are current" ""
 else
   add_check adapters FAIL "managed adapters or settings are missing or stale" "$SRC/install.sh"
@@ -185,9 +221,18 @@ check_skill_target() {
   fi
 }
 
-if [[ "$hash_available" -eq 1 ]] && build_skill_catalog; then
-  check_skill_target "$HOME/.claude/skills" claude-skills
-  check_skill_target "$HOME/.codex/skills" codex-skills
+if [[ "$hash_available" -eq 1 ]] && [[ -n "$accounts" ]] && build_skill_catalog; then
+  # The default account keeps the bare `claude-skills` id so existing consumers
+  # of --json are unaffected; additional accounts are suffixed with their name.
+  while IFS=$'\t' read -r account_name account_dir; do
+    [[ -n "$account_name" ]] || continue
+    if [[ "$account_name" == "$LLMCTX_ACCOUNT_DEFAULT_NAME" ]]; then
+      check_skill_target "$account_dir/skills" claude-skills
+    else
+      check_skill_target "$account_dir/skills" "claude-skills[$account_name]"
+    fi
+  done <<<"$accounts"
+  [[ -n "$account" ]] || check_skill_target "$HOME/.codex/skills" codex-skills
 
   # Report the active bundle. `all` is the default and needs no comment; a
   # narrowed one does, because the whole point of narrowing is that some skills
@@ -214,7 +259,8 @@ if [[ "$hash_available" -eq 1 ]] && build_skill_catalog; then
   fi
 else
   add_check claude-skills FAIL "managed skills could not be inventoried" "$SRC/bin/llmctx skills install"
-  add_check codex-skills FAIL "managed skills could not be inventoried" "$SRC/bin/llmctx skills install"
+  [[ -n "$account" ]] ||
+    add_check codex-skills FAIL "managed skills could not be inventoried" "$SRC/bin/llmctx skills install"
 fi
 
 if [[ "$quiet" -eq 0 ]]; then

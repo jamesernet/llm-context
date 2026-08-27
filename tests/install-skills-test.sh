@@ -9,7 +9,7 @@ tmp="$(cd "$tmp" && pwd)"
 fixture="$tmp/source"
 mkdir -p "$fixture/bin/lib" "$fixture/skills/owned" "$fixture/vendor/vendored"
 cp "$SRC/bin/llmctx" "$SRC/bin/install-skills.sh" "$fixture/bin/"
-cp "$SRC/bin/lib/skills.sh" "$fixture/bin/lib/"
+cp "$SRC/bin/lib/skills.sh" "$SRC/bin/lib/accounts.sh" "$fixture/bin/lib/"
 printf '%s\n' '# Owned skill' >"$fixture/skills/owned/SKILL.md"
 printf '%s\n' '# Vendored skill' >"$fixture/vendor/vendored/SKILL.md"
 git -C "$fixture" init -q

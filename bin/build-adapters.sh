@@ -4,12 +4,24 @@ set -euo pipefail
 # Generates local per-tool adapters from the canonical context files in this
 # repo. Edit the source here, then run this script. Never edit generated output.
 #
-#   bin/build-adapters.sh           regenerate local adapters
-#   bin/build-adapters.sh --check   report local adapter drift and exit non-zero
+#   bin/build-adapters.sh                    regenerate local adapters
+#   bin/build-adapters.sh --check            report drift and exit non-zero
+#   bin/build-adapters.sh --account <name>   restrict to one Claude account
 #
 # Adapters (from global/):
-#   ~/.claude/CLAUDE.md   Claude Code — supports @import, so it references the files.
+#   <account>/CLAUDE.md   Claude Code — supports @import, so it references the files.
 #   ~/.codex/AGENTS.md    Codex — no @import, so the files are concatenated inline.
+#
+# Claude output is built into EVERY registered account (bin/lib/accounts.sh),
+# not just ~/.claude, because the alternative is what actually happened: a
+# second account was created, the installer kept writing only to the first, and
+# nothing reported a problem. Codex has no account concept, so its adapter is
+# built once.
+#
+# Each account gets its OWN hooks/ rather than referencing the default
+# account's. A cross-account path works until that directory is reset or moved,
+# and then leaves a silently unwired safety hook — which is indistinguishable
+# from a working one until the day it should have fired.
 #
 # Public website copies are a separate concern. Use
 # bin/sync-published-context.sh so installing agent configuration never creates
@@ -18,6 +30,31 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SRC="$(cd "$SCRIPT_DIR/.." && pwd)"
 GLOBAL_DIR="$SRC/global"
+# shellcheck source=bin/lib/accounts.sh
+source "$SCRIPT_DIR/lib/accounts.sh"
+
+check_only=0
+account=""
+while [[ "$#" -gt 0 ]]; do
+  case "$1" in
+    --check)
+      check_only=1
+      shift
+      ;;
+    --account)
+      account="${2:-}"
+      shift 2
+      ;;
+    --account=*)
+      account="${1#--account=}"
+      shift
+      ;;
+    *)
+      echo "usage: build-adapters.sh [--check] [--account <name>]" >&2
+      exit 2
+      ;;
+  esac
+done
 
 # global/ files loaded into every agent session, in order.
 SHARED=(
@@ -26,7 +63,14 @@ SHARED=(
   handoff-and-briefs.md
 )
 
-CLAUDE_MD="$HOME/.claude/CLAUDE.md"
+# Per-account destinations. Empty until use_account() points them at one config
+# directory; the run walks the registry and re-points them for each.
+CLAUDE_MD=""
+CLAUDE_SETTINGS_DEST=""
+CLAUDE_HOOKS_DEST=""
+POLICY_LIB_DEST=""
+CLAUDE_CONFIG_PREFIX=""
+CLAUDE_CONFIG_DISPLAY=""
 CODEX_MD="$HOME/.codex/AGENTS.md"
 
 # Versioned Claude Code settings (portable safety hooks). Source of truth for the
@@ -44,16 +88,30 @@ CODEX_MD="$HOME/.codex/AGENTS.md"
 # — this repo is still the single source of truth for what it manages — it just
 # no longer claims ownership of things it never had an opinion about.
 CLAUDE_SETTINGS_SRC="$SRC/claude/settings.json"
-CLAUDE_SETTINGS_DEST="$HOME/.claude/settings.json"
 
 # PreToolUse hook scripts. Real scripts on disk, referenced by path from
 # settings.json, rather than shell escaped into JSON: the previous inline form
 # was unreadable, untestable, and invisible to both lint-skills.sh and the
 # linter itself.
 CLAUDE_HOOKS_SRC="$SRC/bin/claude-hooks"
-CLAUDE_HOOKS_DEST="$HOME/.claude/hooks"
 POLICY_LIB_SRC="$SRC/bin/lib/policy.sh"
-POLICY_LIB_DEST="$CLAUDE_HOOKS_DEST/llmctx-policy.sh"
+
+# Point every per-account destination at one config directory.
+use_account() {
+  local dir="$1"
+  CLAUDE_MD="$dir/CLAUDE.md"
+  CLAUDE_SETTINGS_DEST="$dir/settings.json"
+  CLAUDE_HOOKS_DEST="$dir/hooks"
+  POLICY_LIB_DEST="$CLAUDE_HOOKS_DEST/llmctx-policy.sh"
+  CLAUDE_CONFIG_PREFIX="$(llmctx_account_home_path "$dir")"
+  # A LITERAL tilde: this one is prose inside the generated CLAUDE.md, read by a
+  # human, not a path this script ever opens.
+  # shellcheck disable=SC2088
+  case "$dir" in
+    "$HOME"/*) CLAUDE_CONFIG_DISPLAY="~/${dir#"$HOME"/}" ;;
+    *) CLAUDE_CONFIG_DISPLAY="$dir" ;;
+  esac
+}
 
 # jq's `*` is recursive for OBJECTS only. For every other type — arrays
 # included — the right operand simply replaces the left. `hooks.PreToolUse` is
@@ -101,13 +159,23 @@ def entry_cmds: [.hooks[]? | .command // empty];
   else . end
 '
 
+# claude/settings.json names its hook scripts through a {{CLAUDE_CONFIG_DIR}}
+# placeholder, resolved per account here. A literal $HOME/.claude would point
+# every account's settings at the DEFAULT account's hooks, which is a dependency
+# nobody would notice until the day it broke.
+render_settings_src() {
+  jq --arg prefix "$CLAUDE_CONFIG_PREFIX" \
+    'walk(if type == "string" then gsub("\\{\\{CLAUDE_CONFIG_DIR\\}\\}"; $prefix) else . end)' \
+    "$CLAUDE_SETTINGS_SRC"
+}
+
 # The merged settings that SHOULD be on disk: local file as the base, repo
 # values layered on top, hook arrays unioned rather than replaced.
 render_settings() {
   local current="{}"
   [[ -f "$CLAUDE_SETTINGS_DEST" ]] && current="$(cat "$CLAUDE_SETTINGS_DEST")"
   printf '%s' "$current" |
-    jq --argjson repo "$(cat "$CLAUDE_SETTINGS_SRC")" "$HOOK_MERGE_JQ"
+    jq --argjson repo "$(render_settings_src)" "$HOOK_MERGE_JQ"
 }
 
 # The subset of the live file that this repo actually manages — used by --check
@@ -117,7 +185,7 @@ managed_subset() {
     echo '{}'
     return
   }
-  jq --argjson repo "$(cat "$CLAUDE_SETTINGS_SRC")" "$HOOK_SUBSET_JQ" \
+  jq --argjson repo "$(render_settings_src)" "$HOOK_SUBSET_JQ" \
     "$CLAUDE_SETTINGS_DEST"
 }
 GEN_NOTE="GENERATED by jamesernet/llm-context/bin/build-adapters.sh — edit the source files in llm-context, not here."
@@ -199,7 +267,7 @@ render_claude() {
   echo
   echo "## Claude Code specifics"
   echo
-  echo "The \"branch before you build\" rule has a global \`PreToolUse\` hook behind it (\`~/.claude/hooks/branch-policy.sh\`). How hard it pushes is per-repo, via \`git config llmctx.branchPolicy\`:"
+  echo "The \"branch before you build\" rule has a global \`PreToolUse\` hook behind it (\`$CLAUDE_CONFIG_DISPLAY/hooks/branch-policy.sh\`). How hard it pushes is per-repo, via \`git config llmctx.branchPolicy\`:"
   echo
   echo "| policy | behaviour |"
   echo "|---|---|"
@@ -234,34 +302,48 @@ render_codex() {
   echo "There is no \`PreToolUse\` hook in Codex. The \"branch before you build\" rule is prose-only here — rely on remote branch protection or a repo pre-commit hook as the backstop."
 }
 
-if [[ "${1:-}" == "--check" ]]; then
+# Resolved once, before anything is written. A malformed registry must stop the
+# run rather than quietly reduce it to the accounts that happened to parse.
+accounts="$(llmctx_accounts_selected "$account")" || exit 1
+
+if [[ "$check_only" -eq 1 ]]; then
   drift=0
-  diff <(render_claude) "$CLAUDE_MD" >/dev/null 2>&1 || {
-    echo "drift: $CLAUDE_MD"
-    drift=1
-  }
-  diff <(render_codex) "$CODEX_MD" >/dev/null 2>&1 || {
-    echo "drift: $CODEX_MD"
-    drift=1
-  }
-  # Compare only the keys this repo declares. A local `theme` is not drift.
-  diff <(jq -S . "$CLAUDE_SETTINGS_SRC") <(managed_subset | jq -S .) >/dev/null 2>&1 ||
-    {
-      echo "drift: $CLAUDE_SETTINGS_DEST (backport portable changes to claude/settings.json, or rebuild)"
+  while IFS=$'\t' read -r account_name account_dir; do
+    [[ -n "$account_name" ]] || continue
+    use_account "$account_dir"
+    diff <(render_claude) "$CLAUDE_MD" >/dev/null 2>&1 || {
+      echo "drift: $CLAUDE_MD"
       drift=1
     }
-  for h in "$CLAUDE_HOOKS_SRC"/*.sh; do
-    [[ -e "$h" ]] || continue
-    diff "$h" "$CLAUDE_HOOKS_DEST/$(basename "$h")" >/dev/null 2>&1 ||
+    # Compare only the keys this repo declares. A local `theme` is not drift.
+    diff <(render_settings_src | jq -S .) <(managed_subset | jq -S .) >/dev/null 2>&1 ||
       {
-        echo "drift: $CLAUDE_HOOKS_DEST/$(basename "$h")"
+        echo "drift: $CLAUDE_SETTINGS_DEST (backport portable changes to claude/settings.json, or rebuild)"
         drift=1
       }
-  done
-  diff "$POLICY_LIB_SRC" "$POLICY_LIB_DEST" >/dev/null 2>&1 || {
-    echo "drift: $POLICY_LIB_DEST"
-    drift=1
-  }
+    for h in "$CLAUDE_HOOKS_SRC"/*.sh; do
+      [[ -e "$h" ]] || continue
+      diff "$h" "$CLAUDE_HOOKS_DEST/$(basename "$h")" >/dev/null 2>&1 ||
+        {
+          echo "drift: $CLAUDE_HOOKS_DEST/$(basename "$h")"
+          drift=1
+        }
+    done
+    diff "$POLICY_LIB_SRC" "$POLICY_LIB_DEST" >/dev/null 2>&1 || {
+      echo "drift: $POLICY_LIB_DEST"
+      drift=1
+    }
+  done <<<"$accounts"
+
+  # Codex is not a Claude account, so a run narrowed to one has nothing to say
+  # about it either way.
+  if [[ -z "$account" ]]; then
+    diff <(render_codex) "$CODEX_MD" >/dev/null 2>&1 || {
+      echo "drift: $CODEX_MD"
+      drift=1
+    }
+  fi
+
   if [[ "$drift" -ne 0 ]]; then
     echo "local adapters out of sync. run bin/build-adapters.sh to fix." >&2
     exit 1
@@ -271,27 +353,37 @@ if [[ "${1:-}" == "--check" ]]; then
 fi
 
 preflight_sources
-install_rendered render_claude "$CLAUDE_MD" '^@'
-install_rendered render_codex "$CODEX_MD" '^## Codex specifics' "$(shared_bytes)"
-mkdir -p "$CLAUDE_HOOKS_DEST"
-for h in "$CLAUDE_HOOKS_SRC"/*.sh; do
-  [[ -e "$h" ]] || continue
-  install -m 0755 "$h" "$CLAUDE_HOOKS_DEST/$(basename "$h")"
-  echo "built: $CLAUDE_HOOKS_DEST/$(basename "$h")"
-done
-install -m 0644 "$POLICY_LIB_SRC" "$POLICY_LIB_DEST"
-echo "built: $POLICY_LIB_DEST"
 
-# Merge, never clobber — see the comment at CLAUDE_SETTINGS_SRC. Written via a
-# temp file so an interrupted or failed jq cannot leave a truncated settings.json
-# behind, which would take Claude Code's configuration down with it.
-mkdir -p "$(dirname "$CLAUDE_SETTINGS_DEST")"
-settings_dir="$(dirname "$CLAUDE_SETTINGS_DEST")"
-# Keep the temporary file beside the destination so mv is an atomic rename even
-# when /tmp and $HOME are different filesystems.
-settings_tmp="$(mktemp "$settings_dir/.llmctx-settings.XXXXXX")"
-trap 'rm -f "$settings_tmp"' EXIT
-render_settings >"$settings_tmp"
-mv "$settings_tmp" "$CLAUDE_SETTINGS_DEST"
-trap - EXIT
-echo "built: $CLAUDE_SETTINGS_DEST (merged; local keys preserved)"
+while IFS=$'\t' read -r account_name account_dir; do
+  [[ -n "$account_name" ]] || continue
+  use_account "$account_dir"
+  echo "account: $account_name -> $account_dir"
+  install_rendered render_claude "$CLAUDE_MD" '^@'
+  mkdir -p "$CLAUDE_HOOKS_DEST"
+  for h in "$CLAUDE_HOOKS_SRC"/*.sh; do
+    [[ -e "$h" ]] || continue
+    install -m 0755 "$h" "$CLAUDE_HOOKS_DEST/$(basename "$h")"
+    echo "built: $CLAUDE_HOOKS_DEST/$(basename "$h")"
+  done
+  install -m 0644 "$POLICY_LIB_SRC" "$POLICY_LIB_DEST"
+  echo "built: $POLICY_LIB_DEST"
+
+  # Merge, never clobber — see the comment at CLAUDE_SETTINGS_SRC. Written via a
+  # temp file so an interrupted or failed jq cannot leave a truncated
+  # settings.json behind, which would take Claude Code's configuration down
+  # with it.
+  mkdir -p "$(dirname "$CLAUDE_SETTINGS_DEST")"
+  settings_dir="$(dirname "$CLAUDE_SETTINGS_DEST")"
+  # Keep the temporary file beside the destination so mv is an atomic rename
+  # even when /tmp and $HOME are different filesystems.
+  settings_tmp="$(mktemp "$settings_dir/.llmctx-settings.XXXXXX")"
+  trap 'rm -f "$settings_tmp"' EXIT
+  render_settings >"$settings_tmp"
+  mv "$settings_tmp" "$CLAUDE_SETTINGS_DEST"
+  trap - EXIT
+  echo "built: $CLAUDE_SETTINGS_DEST (merged; local keys preserved)"
+done <<<"$accounts"
+
+if [[ -z "$account" ]]; then
+  install_rendered render_codex "$CODEX_MD" '^## Codex specifics' "$(shared_bytes)"
+fi
