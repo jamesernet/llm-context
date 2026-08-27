@@ -34,11 +34,14 @@ For normal workstation automation, check out an intentional `vMAJOR.MINOR.PATCH`
 
 ```sh
 bin/llmctx version [--json]
-bin/llmctx install
-bin/llmctx doctor [--json|--quiet]
+bin/llmctx install [--account <name>]
+bin/llmctx doctor [--json|--quiet] [--account <name>]
 bin/llmctx repo diff [repo] [--json]
 bin/llmctx explain <profile|branchPolicy|protectedBranches> [repo]
-bin/llmctx skills install [--dev] [--bundle <name>]
+bin/llmctx account list [--json]
+bin/llmctx account add <name> <dir>
+bin/llmctx account remove <name>
+bin/llmctx skills install [--dev] [--bundle <name>] [--account <name>]
 bin/llmctx vendor check
 bin/llmctx publish sync [--check]
 ```
@@ -53,15 +56,47 @@ Narrowing here is the only thing that makes skill selection real. A project's ow
 
 An unknown bundle name is refused and changes nothing — resolving it to the empty set would prune every installed skill over one missing letter.
 
+## Claude accounts
+
+Claude Code keys its credential store by `CLAUDE_CONFIG_DIR`, so a second config directory is a second, fully independent login rather than a swapped token — which is how one machine works across two organizations while connectors and Remote Control keep working in both.
+
+Register each extra directory once; `install` and `doctor` then cover all of them:
+
+```sh
+bin/llmctx account add acme ~/.claude-acme
+bin/llmctx install
+bin/llmctx doctor
+```
+
+`~/.claude` is always installed into, as `default`, and cannot be unregistered. Registration is purely additive, because a list that could omit the primary would reintroduce exactly the failure this exists to prevent: an install that skips a config directory and still reports success. `--account <name>` narrows a run to one; `doctor` reports each account separately, so "this account is behind" cannot hide behind an aggregate PASS.
+
+Each account gets its own `hooks/`, so no account depends on another's directory surviving. An account created by copying another arrives holding the original's hook paths; `install` re-points them rather than leaving both wired.
+
+`account remove` unregisters a directory. It never deletes one — dropping a credential store as a side effect of a config change is not a trade this tool makes for you.
+
+**`account` is not `profile`.** A *profile* (`personal` / `client`, see below) describes a repository's policy. An *account* describes which Claude login a session runs on. Different axis, deliberately different word.
+
+**Routing a repository to an account** is direnv's job, not this tool's, since it is the shell that has to carry `CLAUDE_CONFIG_DIR` into `claude`. Put the `.envrc` one level ABOVE the repositories so it covers all of them:
+
+```sh
+# ~/repos/github.com/<org>/.envrc
+export CLAUDE_CONFIG_DIR="$HOME/.claude-acme"
+```
+
+A repository with its own `.envrc` needs `source_up_if_exists` as its first line, or it shadows the parent entirely — silently, with no error — and the routing does not apply there. Confirm with `/status` in a live session; it names the account and org.
+
 ## Data flow
 
 ```text
-global/ ───────────────> ~/.claude/CLAUDE.md
+global/ ───────────────> <account>/CLAUDE.md
        └───────────────> ~/.codex/AGENTS.md
-claude/settings.json ──> ~/.claude/settings.json (portable keys merged)
-skills/ + vendor/ ─────> ~/.claude/skills/ and ~/.codex/skills/
+claude/settings.json ──> <account>/settings.json (portable keys merged)
+bin/claude-hooks/ ─────> <account>/hooks/
+skills/ + vendor/ ─────> <account>/skills/ and ~/.codex/skills/
 brand/ ── explicit ────> existing publication repositories
 ```
+
+`<account>` is every registered Claude config directory, always including `~/.claude`.
 
 `AGENTS.md` is the canonical project instruction file. A project's `CLAUDE.md` should import it with `@AGENTS.md`, avoiding two drifting project rule sets.
 
