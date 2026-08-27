@@ -160,7 +160,7 @@ case "$tool" in
       # `$VAR`/`${VAR}` — a variable built from other variables, or set in an
       # earlier tool call, is not visible here and correctly falls through.
       case "$cd_dir" in
-        '$'* )
+        '$'*)
           var="${cd_dir#'$'}"
           var="${var#\{}"
           var="${var%\}}"
