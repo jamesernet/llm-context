@@ -123,14 +123,22 @@ use_account() {
 # recommending exactly that command to clear the drift the extra entry caused.
 # An unwired safety hook fails silently and looks identical to a working one.
 #
-# So hook arrays are merged by UNION on the hook COMMAND: this repo's entries
-# are authoritative and come first, and any local entry whose commands this repo
-# does not declare survives untouched. Same invariant as the top-level keys —
-# the repo owns what it declares and nothing else — applied one level deeper.
-# Union on command (not on matcher) because two entries legitimately share a
-# matcher: that is how you attach two independent guards to the same tools.
+# So hook arrays are merged by UNION on the hook SCRIPT NAME: this repo's
+# entries are authoritative and come first, and any local entry naming a script
+# this repo does not ship survives untouched. Same invariant as the top-level
+# keys — the repo owns what it declares and nothing else — applied one level
+# deeper.
+#
+# On the script NAME rather than the full path, because an account created by
+# copying another carries the original's hook paths. Those entries are this
+# repo's own, just pointing at the wrong account, and matching on the full path
+# would leave the stale one in place beside the corrected one — the same guard
+# wired twice. Matching on the basename re-points it instead.
+#
+# Not on the MATCHER, because two entries legitimately share one: that is how
+# you attach two independent guards to the same tools.
 HOOK_MERGE_JQ='
-def entry_cmds: [.hooks[]? | .command // empty];
+def entry_cmds: [.hooks[]? | .command // empty | split("/") | last];
 . as $local
 | ($local * $repo)
 | if ($repo | has("hooks")) then
@@ -146,7 +154,7 @@ def entry_cmds: [.hooks[]? | .command // empty];
 # The mirror image, for --check: the part of the live file this repo manages, so
 # a local `theme` or a foreign hook entry never reports as drift.
 HOOK_SUBSET_JQ='
-def entry_cmds: [.hooks[]? | .command // empty];
+def entry_cmds: [.hooks[]? | .command // empty | split("/") | last];
 . as $local
 | ($repo | keys) as $rk
 | ($local | with_entries(select(.key as $k | $rk | index($k))))

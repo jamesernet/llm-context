@@ -53,6 +53,15 @@ git config --global --add llmctx.claudeAccount "no-equals-sign"
 ! run "$CLI" doctor --quiet 2>/dev/null || fail "doctor passed with a malformed registry"
 git config --global --unset llmctx.claudeAccount "^no-equals-sign$"
 
+# A second account is normally made by copying the first, so it arrives holding
+# the ORIGINAL account's hook paths and its own local preferences.
+mkdir -p "$acme_dir"
+jq -n '{
+  theme: "dark",
+  hooks: {PreToolUse: [{matcher: "Edit|Write|NotebookEdit|Bash",
+    hooks: [{type: "command", command: "$HOME/.claude/hooks/branch-policy.sh"}]}]}
+}' >"$acme_dir/settings.json"
+
 run "$copy/install.sh" >/dev/null || fail "install failed"
 
 for dir in "$test_home/.claude" "$acme_dir"; do
@@ -71,6 +80,13 @@ jq -e '[.hooks.PreToolUse[].hooks[].command] | index("$HOME/.claude/hooks/branch
   "$test_home/.claude/settings.json" >/dev/null || fail "default settings hook path changed"
 grep -q '`~/.claude-acme/hooks/branch-policy.sh`' "$acme_dir/CLAUDE.md" ||
   fail "acme CLAUDE.md names another account's hook path"
+
+# The inherited path must be RE-POINTED, not left beside the corrected one.
+# A duplicate entry wires the same guard twice and looks like it is working.
+[[ "$(jq '[.hooks.PreToolUse[].hooks[] | select(.command | endswith("branch-policy.sh"))] | length' \
+  "$acme_dir/settings.json")" == 1 ]] || fail "a copied account kept a stale duplicate hook entry"
+jq -e '.theme == "dark"' "$acme_dir/settings.json" >/dev/null ||
+  fail "the copied account's own settings were lost"
 
 run "$CLI" doctor --json >"$tmp/health.json" || fail "doctor reported an unhealthy machine"
 jq -e 'any(.checks[]; .id == "claude-skills[acme]" and .status == "PASS")' "$tmp/health.json" >/dev/null ||
