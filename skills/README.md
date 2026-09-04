@@ -30,6 +30,7 @@ skill in no bundle silently installs only under `all`.
 | [improve-codebase-architecture](improve-codebase-architecture/) | `/improve-codebase-architecture` | scan for deepening opportunities → HTML report → grill the chosen one |
 | [implement](implement/) | `/implement` | implement work from a PRD or set of issues |
 | [diagnosing-bugs](diagnosing-bugs/) | `/diagnosing-bugs` · auto | diagnosis loop for hard bugs and perf regressions |
+| [docs-drift-audit](docs-drift-audit/) | `/docs-drift-audit` · auto | audit AGENTS.md/CLAUDE.md/README against the code; staged path resolution, ADR and brief rot; supporting [reference-taxonomy](docs-drift-audit/references/reference-taxonomy.md), [report-template](docs-drift-audit/references/report-template.md), [extract-refs.py](docs-drift-audit/scripts/extract-refs.py) |
 
 ## domain-modeling
 | skill | invoke | what it does |
