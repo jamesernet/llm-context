@@ -99,6 +99,10 @@ POLICY_LIB_SRC="$SRC/bin/lib/policy.sh"
 # Point every per-account destination at one config directory.
 use_account() {
   local dir="$1"
+  # The account NAME, for the identifying line render_claude emits. Optional so a
+  # caller holding only a directory still works; the line is then omitted rather
+  # than printed with an empty name.
+  CLAUDE_ACCOUNT_NAME="${2:-}"
   CLAUDE_MD="$dir/CLAUDE.md"
   CLAUDE_SETTINGS_DEST="$dir/settings.json"
   CLAUDE_HOOKS_DEST="$dir/hooks"
@@ -273,6 +277,16 @@ render_claude() {
   echo
   for f in "${SHARED[@]}"; do echo "@$GLOBAL_DIR/$f"; done
   echo
+  # WHICH ACCOUNT THIS IS. Claude Code loads ~/.claude/CLAUDE.md in addition to the
+  # one for the active CLAUDE_CONFIG_DIR, so in a non-default account's session TWO
+  # of these files sit in context at once. They come from one template and differ
+  # only in the paths they name, which made the difference invisible and the hook
+  # path a coin flip: an agent asked to inspect the branch guard had even odds of
+  # reading, and editing, the inactive copy and reporting success.
+  if [[ -n "$CLAUDE_ACCOUNT_NAME" ]]; then
+    echo "This file belongs to the **\`$CLAUDE_ACCOUNT_NAME\`** Claude account (\`$CLAUDE_CONFIG_DISPLAY\`). More than one account's \`CLAUDE.md\` can be loaded in a single session, and they differ only in the paths they name. **Where two disagree, the one naming your active \`CLAUDE_CONFIG_DIR\` wins** — \`/status\` names the live account."
+    echo
+  fi
   echo "## Claude Code specifics"
   echo
   echo "The \"branch before you build\" rule has a global \`PreToolUse\` hook behind it (\`$CLAUDE_CONFIG_DISPLAY/hooks/branch-policy.sh\`). How hard it pushes is per-repo, via \`git config llmctx.branchPolicy\`:"
@@ -318,7 +332,7 @@ if [[ "$check_only" -eq 1 ]]; then
   drift=0
   while IFS=$'\t' read -r account_name account_dir; do
     [[ -n "$account_name" ]] || continue
-    use_account "$account_dir"
+    use_account "$account_dir" "$account_name"
     diff <(render_claude) "$CLAUDE_MD" >/dev/null 2>&1 || {
       echo "drift: $CLAUDE_MD"
       drift=1
@@ -364,7 +378,7 @@ preflight_sources
 
 while IFS=$'\t' read -r account_name account_dir; do
   [[ -n "$account_name" ]] || continue
-  use_account "$account_dir"
+  use_account "$account_dir" "$account_name"
   echo "account: $account_name -> $account_dir"
   install_rendered render_claude "$CLAUDE_MD" '^@'
   mkdir -p "$CLAUDE_HOOKS_DEST"
