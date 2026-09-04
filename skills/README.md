@@ -4,9 +4,15 @@ Personal, in-development skill set. Each skill is a flat directory with a `SKILL
 (Claude Code does **not** discover nested category folders), so the grouping below is
 organizational only.
 
-**Workflow:** these live in the `llm-context` repo (version-controlled) and are symlinked
-into `~/.claude/skills/<name>/`, so they load in every project and edits here take effect
-immediately — no copy step. A project-local skill of the same name shadows the global one.
+**Workflow:** these live in the `llm-context` repo (version-controlled) and are installed
+into each account's `skills/<name>/` by `bin/install-skills.sh` — managed copies by default,
+symlinks under `--dev` so edits take effect immediately. A project-local `.claude/skills/` is
+**additive**: it cannot hide a globally installed skill.
+
+**Bundles:** [`bundles.conf`](bundles.conf) decides which skills a class of project actually
+installs (`core`, `website`, `webapp`, `platform`, `fintech`, `cloudflare`, or `all`). Every
+skill below must appear in at least one bundle — `bin/lint-skills.sh` enforces it, because a
+skill in no bundle silently installs only under `all`.
 
 `/name` = user-invocable. "auto" = can also self-trigger from the description's trigger phrases
 (skills marked `disable-model-invocation: true` are user-invoked only).
@@ -47,7 +53,7 @@ These are referenced by the skills above; imported so the set is self-contained.
 |---|---|---|
 | [codebase-design](codebase-design/) | auto | improve-codebase-architecture, tdd (module/seam/depth vocabulary) |
 | [setup-skills](setup-skills/) | `/setup-skills` | to-prd, to-issues, triage (per-project tracker + label config) |
-| [triage](triage/) | `/triage` · auto | front-end of the intake→triage→prd→issues pipeline |
+| [triage](triage/) | `/triage` | front-end of the intake→triage→prd→issues pipeline |
 
 _`review` was dropped 2026-07 — `implement` uses the built-in `/code-review`; it lives in git history if ever needed._
 
@@ -56,6 +62,8 @@ _`review` was dropped 2026-07 — `implement` uses the built-in `/code-review`; 
 |---|---|---|
 | [product-ux-review](product-ux-review/) | `/product-ux-review` · auto | browser-driven UX audit; escape/recovery, forms, keyboard, responsive, consistency; supporting [interaction-checklist](product-ux-review/references/interaction-checklist.md), [report-template](product-ux-review/references/report-template.md) |
 | [metadata-audit](metadata-audit/) | `/metadata-audit` · auto | gated audit of a page's machine-readable layer; robots/canonical/AI-crawler posture, llms.txt, OG/Twitter, JSON-LD; supporting [decision-tree](metadata-audit/references/decision-tree.md), [schema-by-page-type](metadata-audit/references/schema-by-page-type.md), [report-template](metadata-audit/references/report-template.md), [inventory.py](metadata-audit/scripts/inventory.py) |
+| [site-visual-baseline](site-visual-baseline/) | `/site-visual-baseline` · auto | reproducible screenshot record across viewports; before/after evidence, capture traps |
+| [website-audit-package](website-audit-package/) | `/website-audit-package` · auto | assemble screenshots, UX, perf and metadata findings into one client-ready package |
 
 ## payments & fintech (mine — not upstream)
 | skill | invoke | scope |
