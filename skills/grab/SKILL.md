@@ -25,19 +25,21 @@ session per worktree.
    without "done means…" is not grabbable yet.
 
 3. **Create the workspace.** Branch name `feature/<issue-id>-<slug>` (or
-   `fix/…`), then create the worktree. **Use the repo's own helper if it ships
-   one** — `scripts/new-worktree.sh <branch>` and similar encode that repo's base
-   branch, location convention and pre-flight checks (core-api's fetches
-   `origin/main` first, because a stale base is how you author a migration
-   chaining off a superseded head). Fall back to
+   `fix/…`), then create the worktree **with the repo's own helper**, which
+   `docs/agents/workflow.md` names where `setup-skills` has been run here (the
+   repo's CLAUDE.md/AGENTS.md otherwise). `scripts/new-worktree.sh <branch>` and
+   its equivalents encode that repo's base branch, location convention and
+   pre-flight — core-api's fetches `origin/main` first, because a stale base is
+   how you author a migration chaining off a superseded head. Fall back to
    `llm-context/bin/worktree.sh new <branch>` only where the repo ships nothing.
    All subsequent work happens inside that worktree, leaving the main checkout
    free for parallel grabs.
 
 4. **Record the working brief where THIS repo keeps briefs**, per the
    AGENT-BRIEF format, and note on the tracker issue that it's been grabbed
-   (assignee/label per repo convention). **Check the repo's CLAUDE.md/AGENTS.md
-   before creating a file for it.** Some repos commit briefs under
+   (assignee/label per repo convention). **Find out where briefs go before
+   creating a file for one** — `docs/agents/workflow.md` where `setup-skills` has
+   been run, the repo's CLAUDE.md/AGENTS.md otherwise. Some repos commit briefs under
    `docs/briefs/`; others have retired that path deliberately and gitignore it,
    because a brief that restates its ticket is a second copy free to drift — in
    those, the brief IS the ticket, working notes stay local and uncommitted, and
