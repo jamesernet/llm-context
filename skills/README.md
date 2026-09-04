@@ -72,15 +72,15 @@ _`review` was dropped 2026-07 — `implement` uses the built-in `/code-review`; 
 | [money-modeling](money-modeling/) | `/money-modeling` · auto | minor units, decimals, currency, rounding, allocation, FX |
 | [payment-flow-review](payment-flow-review/) | `/payment-flow-review` · auto | auth/capture/settle/refund states, idempotency, webhooks, reconciliation |
 | [ledger-and-reconciliation](ledger-and-reconciliation/) | `/ledger-and-reconciliation` · auto | double-entry, immutability, balance derivation, settlement matching, breaks |
-| [tech-due-diligence](tech-due-diligence/) | `/tech-due-diligence` | architecture/team/risk/compliance diligence pass (investor · M&A · situation review) |
+| [tech-due-diligence](tech-due-diligence/) | `/tech-due-diligence` · auto | architecture/team/risk/compliance diligence pass (investor · M&A · situation review) |
 
 ## security & compliance (mine — not upstream)
 | skill | invoke | scope |
 |---|---|---|
 | [threat-model](threat-model/) | `/threat-model` · auto | DFD, trust boundaries, STRIDE, ranked mitigations |
 | [data-privacy-review](data-privacy-review/) | `/data-privacy-review` · auto | PII inventory, retention/deletion, DSAR, residency, processors |
-| [pci-dss-scoping](pci-dss-scoping/) | `/pci-dss-scoping` | card-data flow mapping, CDE shrinking, SAQ selection |
-| [kyc-aml-review](kyc-aml-review/) | `/kyc-aml-review` | IDV, screening, risk rating, monitoring, SAR workflow |
+| [pci-dss-scoping](pci-dss-scoping/) | `/pci-dss-scoping` · auto | card-data flow mapping, CDE shrinking, SAQ selection |
+| [kyc-aml-review](kyc-aml-review/) | `/kyc-aml-review` · auto | IDV, screening, risk rating, monitoring, SAR workflow |
 
 ## Attribution
 Seeded verbatim from [mattpocock/skills](https://github.com/mattpocock/skills) (MIT,
