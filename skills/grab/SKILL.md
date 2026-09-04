@@ -1,6 +1,6 @@
 ---
 name: grab
-description: Grab a unit of work — take an issue or brief, create the branch and worktree, write the working brief to docs/briefs/, and start implementing. User-invoked as /grab <issue-or-brief>.
+description: Grab a unit of work — take a ticket, create the branch and worktree, record the working brief where the repo keeps them, and start implementing. User-invoked as /grab <issue-or-brief>.
 disable-model-invocation: true
 ---
 
@@ -16,7 +16,7 @@ session per worktree.
    repo's tracker (which tracker: see the repo's CLAUDE.md/AGENTS.md and
    [setup-skills](../setup-skills/)). `/grab` with no argument: list open,
    unassigned, ready-labeled issues and ask which one. If pointed at an
-   existing `docs/briefs/` file, use it directly.
+   existing brief file, use it directly.
 
 2. **Qualify before building.** Read the issue. If it lacks what
    [AGENT-BRIEF](../triage/AGENT-BRIEF.md) requires — context, constraints,
@@ -25,13 +25,24 @@ session per worktree.
    without "done means…" is not grabbable yet.
 
 3. **Create the workspace.** Branch name `feature/<issue-id>-<slug>` (or
-   `fix/…`), then create the worktree with
-   `llm-context/bin/worktree.sh new <branch>`. All subsequent work happens
-   inside that worktree, leaving the main checkout free for parallel grabs.
+   `fix/…`), then create the worktree. **Use the repo's own helper if it ships
+   one** — `scripts/new-worktree.sh <branch>` and similar encode that repo's base
+   branch, location convention and pre-flight checks (core-api's fetches
+   `origin/main` first, because a stale base is how you author a migration
+   chaining off a superseded head). Fall back to
+   `llm-context/bin/worktree.sh new <branch>` only where the repo ships nothing.
+   All subsequent work happens inside that worktree, leaving the main checkout
+   free for parallel grabs.
 
-4. **Write the working brief** to `docs/briefs/<issue-id>-<slug>.md` in the
-   worktree, per the AGENT-BRIEF format, and note on the tracker issue that
-   it's been grabbed (assignee/label per repo convention).
+4. **Record the working brief where THIS repo keeps briefs**, per the
+   AGENT-BRIEF format, and note on the tracker issue that it's been grabbed
+   (assignee/label per repo convention). **Check the repo's CLAUDE.md/AGENTS.md
+   before creating a file for it.** Some repos commit briefs under
+   `docs/briefs/`; others have retired that path deliberately and gitignore it,
+   because a brief that restates its ticket is a second copy free to drift — in
+   those, the brief IS the ticket, working notes stay local and uncommitted, and
+   there is nothing to write. Never create a briefs directory a repo does not
+   already use.
 
 5. **Implement** via [implement](../implement/), honoring the brief's
    verification criteria as the definition of done. On completion or when

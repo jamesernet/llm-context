@@ -2,7 +2,7 @@
 
 An agent brief is a structured comment posted on the tracker's issue or PR when it moves to `ready-for-agent`. It is the authoritative specification that whoever picks up the work — Claude Code, Codex, or a human engineer — works from. The original body and discussion are context; the brief is the contract.
 
-Also save a working copy in the repo at `docs/briefs/<issue-id>-<slug>.md` — the fixed, tool-agnostic home any agent checks on session start. The tracker copy is the source of truth (trackers vary by client); if the file and the tracker disagree, the tracker wins — update the file.
+**The tracker copy is the source of truth** (trackers vary by repo). Whether a working copy is also committed is the repo's call: some keep one under `docs/briefs/`, and where they do, the tracker still wins on any disagreement — update the file. Others have retired that path and gitignore it, because a second copy only drifts; there, the brief IS the ticket and there is no file to save. Check the repo's CLAUDE.md/AGENTS.md before creating one.
 
 The brief is **agent-agnostic and self-contained**: it must stand on its own so that any implementer produces the same result, and it must never assume the reader has the chat or session context it came out of. It is the unit of *work distribution*. (Session-to-session continuity of work you're already carrying is a different job — that's the `handoff` skill. Don't put durable requirements in a handoff doc; put them in a brief.)
 
