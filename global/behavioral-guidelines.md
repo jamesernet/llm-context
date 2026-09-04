@@ -88,19 +88,26 @@ How hard the tool-level guard pushes is a per-repo decision: `off`, `remind` (on
 git worktree add -b feature/<short-description> ../<repo>-worktrees/<slug> <base>
 ```
 
-Run one session per worktree; remove it (`git worktree remove`) once merged. Solo, single-session work can still branch in the main checkout — the worktree is the fix for concurrency, not a tax on every branch. A repo may ship a helper (e.g. `scripts/new-worktree.sh`) that encodes its base branch and location convention.
+Run one session per worktree; remove it (`git worktree remove`) once merged. Solo, single-session work may branch in the main checkout **unless the repo's own hooks refuse it** — check `.githooks/pre-commit` and `core.hooksPath` before assuming, because a repo that enforces worktree-per-branch unconditionally will refuse the commit after you have done the work, not before. A repo may ship a helper (e.g. `scripts/new-worktree.sh`) that encodes its base branch and location convention; prefer it over the raw command above.
 
 **Clean up completed work.** When you know a feature branch has been merged into
 `main`, `master`, or the repo's integration branch (for example `stage`):
 
 1. Verify the worktree is clean.
-2. Verify the feature branch is fully merged with `git merge-base --is-ancestor <branch> <target>`.
-3. Remove the linked worktree.
-4. Delete the merged local branch with `git branch -d <branch>`.
+2. Prove the merge **in the way the repo's history allows**, then remove the linked
+   worktree and delete the branch with `git branch -d`.
 
-If the target branch is ambiguous, the worktree is dirty, or ancestry cannot be
-proven, stop and ask. Never force-delete a branch or delete a remote branch
-without an explicit request.
+`git merge-base --is-ancestor <branch> <target>` is the proof only where merges preserve
+commits. **Under squash merges it reports "not merged" for every correctly-merged
+branch**, because what landed is a new commit with a different SHA — which leaves
+`git branch -D`, the force-delete this file tells you never to reach for. Where a repo
+ships a pruning helper (e.g. `scripts/prune-worktrees.sh`), use it: the workable proof
+there is matching the branch tip against the merged PR's `headRefOid`, which also catches
+commits pushed after the merge.
+
+If the target branch is ambiguous, the worktree is dirty, or the merge cannot be proven
+by a method that fits the repo's merge strategy, stop and ask. Never force-delete a
+branch or delete a remote branch without an explicit request.
 
 ## 6. Operating Safety
 
@@ -108,4 +115,4 @@ without an explicit request.
 
 **Irreversible actions:** Before `rm -rf`, dropping DBs/tables, running migrations against non-local environments, force-push, history rewrite, or deleting branches — stop and confirm. The only standing exception is deleting a clean local worktree and local branch after the merged-work cleanup checks above prove the branch is fully merged.
 
-**Commits & PRs:** Small, logically-scoped commits. Keep the subject line to 72 characters or fewer and describe the commit's overall theme clearly. Add a body only when additional context materially helps the reviewer. Do not add `Co-authored-by:` trailers or other co-author attribution. Never push or open a PR without an explicit ask.
+**Commits & PRs:** Small, logically-scoped commits, with a subject that describes the commit's overall theme. Keep the subject to a single line that reads comfortably in a terminal; **where a repo has an observed convention, follow that instead** — some write the subject as a claim and legitimately run past 72 characters, and some have their tooling append a PR number you must therefore not type yourself. Add a body only when additional context materially helps the reviewer. Do not add `Co-authored-by:` trailers or other co-author attribution. Never push or open a PR without an explicit ask.
