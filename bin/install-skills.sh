@@ -9,7 +9,7 @@ source "$SCRIPT_DIR/lib/skills.sh"
 source "$SCRIPT_DIR/lib/accounts.sh"
 
 mode=copy
-bundle=""
+bundle_opt=""
 account=""
 while [[ "$#" -gt 0 ]]; do
   case "$1" in
@@ -26,11 +26,11 @@ while [[ "$#" -gt 0 ]]; do
       shift
       ;;
     --bundle)
-      bundle="${2:-}"
+      bundle_opt="${2:-}"
       shift 2
       ;;
     --bundle=*)
-      bundle="${1#--bundle=}"
+      bundle_opt="${1#--bundle=}"
       shift
       ;;
     *)
@@ -45,10 +45,25 @@ done
 # repository would then have to gitignore. Without it, `llmctx install` would
 # silently widen the set back to `all` on the next run — which is exactly the
 # failure that makes people stop trusting a narrowing tool.
-if [[ -z "$bundle" ]]; then
-  bundle="$(git config --global --get llmctx.skillBundle 2>/dev/null || true)"
-fi
-[[ -n "$bundle" ]] || bundle=all
+#
+# Resolution is per account, because one machine runs accounts with genuinely
+# different needs — a fintech backend and a marketing site share almost nothing.
+# A single global key would let a plain `llmctx install` re-apply one account's
+# choice to every other account, which is the same silent widening one level up.
+bundle_for_account() {
+  local acct="$1" value=""
+  if [[ -n "$bundle_opt" ]]; then
+    printf '%s\n' "$bundle_opt"
+    return
+  fi
+  if [[ -n "$acct" ]]; then
+    value="$(git config --global --get "llmctx.skillBundle.$acct" 2>/dev/null || true)"
+  fi
+  [[ -n "$value" ]] ||
+    value="$(git config --global --get llmctx.skillBundle 2>/dev/null || true)"
+  [[ -n "$value" ]] || value=all
+  printf '%s\n' "$value"
+}
 
 command -v jq >/dev/null 2>&1 || {
   echo "error: jq is required to install managed skills" >&2
@@ -168,50 +183,49 @@ done
 
 bundles_file="$SRC/skills/bundles.conf"
 
-expand_bundle() {
-  local b="$1" name skill
-  grep -qxF "$b" "$seen_bundles" && return 0
-  printf '%s\n' "$b" >>"$seen_bundles"
-  while IFS='|' read -r name skill; do
-    [[ "$name" == "$b" ]] || continue
-    case "$skill" in
-      '+'*) expand_bundle "${skill#+}" ;;
-      '') ;;
-      *) printf '%s\n' "$skill" >>"$skill_names" ;;
-    esac
-  done <"$bundles_file"
-}
-
-if [[ "$bundle" == all ]]; then
-  cp "$available" "$skill_names"
-else
+# An unknown bundle must fail loudly and change nothing, so every target's
+# bundle is validated before the first install prunes anything.
+validate_bundle() {
+  local spec="$1" b
+  [[ "$spec" == all ]] && return 0
   [[ -f "$bundles_file" ]] || {
     echo "error: no $bundles_file" >&2
     exit 1
   }
   # Validate each name in a comma-separated list BEFORE resolving any of them.
-  # An unknown bundle must fail loudly and change nothing: resolving it to the
-  # empty set would prune every installed skill over one missing letter.
-  # Validating the joined string instead of its parts is what made `webapp,
-  # fintech` report itself as an unknown bundle.
-  IFS=',' read -r -a bundle_list <<<"$bundle"
-  for b in "${bundle_list[@]}"; do
-    grep -qE "^${b}\|" "$bundles_file" || {
-      echo "error: unknown bundle '$b'" >&2
-      echo "available: $(grep -v '^#' "$bundles_file" | grep -v '^$' | cut -d'|' -f1 | sort -u | tr '\n' ' ')all" >&2
-      exit 2
-    }
-  done
-  for b in "${bundle_list[@]}"; do expand_bundle "$b"; done
+  # Resolving an unknown name to the empty set would prune every installed
+  # skill over one missing letter. Validating the joined string instead of its
+  # parts is what made `webapp,fintech` report itself as an unknown bundle.
+  llmctx_bundle_is_known "$bundles_file" "$spec" || {
+    echo "error: unknown bundle in '$spec'" >&2
+    echo "available: $(grep -v '^#' "$bundles_file" | grep -v '^$' | cut -d'|' -f1 | sort -u | tr '\n' ' ')all" >&2
+    exit 2
+  }
+}
+
+# Resolve one bundle spec into $skill_names.
+resolve_skills() {
+  local spec="$1" b want
+  : >"$skill_names"
+  : >"$seen_bundles"
+  if [[ "$spec" == all ]]; then
+    cp "$available" "$skill_names"
+    LC_ALL=C sort -o "$skill_names" "$skill_names"
+    return
+  fi
   # A bundle naming a skill this release does not ship is a stale bundles.conf,
   # not a reason to fail the install — report it and carry on.
+  : >"$seen_bundles"
+  IFS=',' read -r -a bundle_list <<<"$spec"
+  for b in "${bundle_list[@]}"; do
+    llmctx_bundle_expand "$bundles_file" "$b" "$seen_bundles" "$skill_names"
+  done
   while IFS= read -r want; do
     grep -qxF "$want" "$available" || echo "warning: bundle names unknown skill '$want'" >&2
   done < <(LC_ALL=C sort -u "$skill_names")
-  LC_ALL=C sort -u "$skill_names" -o "$skill_names"
-  comm -12 "$skill_names" <(LC_ALL=C sort -u "$available") >"$skill_names.f"
-  mv "$skill_names.f" "$skill_names"
-fi
+  llmctx_bundle_skills "$SRC" "$spec" "$skill_names"
+}
+
 # Duplicates are checked against the WHOLE catalogue, not the selected set: the
 # namespace is flat across skills/ and vendor/, so a collision is a packaging
 # fault regardless of which bundle is installed today. Checking only the
@@ -223,27 +237,40 @@ duplicate_names="$(LC_ALL=C sort "$available" | uniq -d)"
   echo "$duplicate_names" >&2
   exit 1
 }
-LC_ALL=C sort -o "$skill_names" "$skill_names"
-
-if [[ "$bundle" != all ]]; then
-  echo "bundle: $bundle ($(wc -l <"$skill_names" | tr -d ' ') of $(wc -l <"$available" | tr -d ' ') skills)"
-fi
 
 # One skills directory per registered Claude account, because the alternative
 # is a machine where `llmctx skills install` reports success and one account
 # has no skills at all — which is the state this replaced.
 accounts="$(llmctx_accounts_selected "$account")" || exit 1
 targets=()
+target_accounts=()
 while IFS=$'\t' read -r account_name account_dir; do
   [[ -n "$account_name" ]] || continue
   targets+=("$account_dir/skills")
+  target_accounts+=("$account_name")
 done <<<"$accounts"
 # Codex has no config-directory switching, so it gets one copy — and a run
-# narrowed to a single Claude account is not about Codex at all.
-[[ -n "$account" ]] || targets+=("$HOME/.codex/skills")
+# narrowed to a single Claude account is not about Codex at all. It has no
+# account of its own, so it follows the global key.
+if [[ -z "$account" ]]; then
+  targets+=("$HOME/.codex/skills")
+  target_accounts+=("")
+fi
+
+# Validate every target's bundle up front: a typo on the second account must
+# not leave the first one already pruned.
+for i in "${!targets[@]}"; do
+  validate_bundle "$(bundle_for_account "${target_accounts[$i]}")"
+done
 
 failures=0
-for target in "${targets[@]}"; do
+for i in "${!targets[@]}"; do
+  target="${targets[$i]}"
+  target_bundle="$(bundle_for_account "${target_accounts[$i]}")"
+  resolve_skills "$target_bundle"
+  if [[ "$target_bundle" != all ]]; then
+    echo "bundle: $target_bundle ($(wc -l <"$skill_names" | tr -d ' ') of $(wc -l <"$available" | tr -d ' ') skills)${target_accounts[$i]:+ [${target_accounts[$i]}]}"
+  fi
   mkdir -p "$target"
 
   for installed in "$target"/*; do

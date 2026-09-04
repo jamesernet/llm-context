@@ -77,4 +77,34 @@ if HOME="$test_home" "$copy/bin/llmctx" doctor --json --quiet >/dev/null 2>&1; t
   fail "conflicting output modes were accepted"
 fi
 
+# A narrowed bundle must not read as a broken install. Counting the whole
+# catalogue made doctor list every deliberately absent skill as needing
+# attention while skill-bundle passed alongside it saying the opposite.
+nb_home="$tmp/narrowed-home"
+mkdir -p "$nb_home"
+git config --global llmctx.skillBundle core
+HOME="$nb_home" "$SRC/bin/install-skills.sh" >/dev/null 2>&1 ||
+  fail "narrowed install failed"
+HOME="$nb_home" "$SRC/bin/doctor.sh" --json >"$tmp/narrowed.json" 2>/dev/null || true
+jq -e '.checks[] | select(.id == "claude-skills") | select(.status == "PASS")' \
+  "$tmp/narrowed.json" >/dev/null ||
+  fail "a narrowed bundle reported the skill set as broken"
+
+# An account with its own bundle is judged against that bundle, not the global.
+git config --global --add llmctx.claudeAccount "acme=$nb_home/.claude-acme"
+git config --global llmctx.skillBundle.acme fintech
+HOME="$nb_home" "$SRC/bin/install-skills.sh" >/dev/null 2>&1 ||
+  fail "per-account install failed"
+HOME="$nb_home" "$SRC/bin/doctor.sh" --json >"$tmp/per-account.json" 2>/dev/null || true
+jq -e '.checks[] | select(.id == "claude-skills[acme]") | select(.status == "PASS")' \
+  "$tmp/per-account.json" >/dev/null ||
+  fail "an account bundle was judged against the global bundle"
+jq -e '.checks[] | select(.id == "skill-bundle") | .detail | contains("acme")' \
+  "$tmp/per-account.json" >/dev/null ||
+  fail "skill-bundle did not report the per-account override"
+
+git config --global --unset llmctx.skillBundle.acme
+git config --global --unset llmctx.skillBundle
+git config --global --unset-all llmctx.claudeAccount
+
 echo "doctor tests: passed"

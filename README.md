@@ -54,6 +54,8 @@ Use `doctor` for machine-level state. Use `repo diff` inside a project to compar
 
 Narrowing here is the only thing that makes skill selection real. A project's own `.claude/skills/` is **additive** and cannot hide a globally installed skill, so until the global set is reduced every project sees everything. The choice persists in `git config --global llmctx.skillBundle`; without that, the next `llmctx install` would silently widen it back to `all`. `llmctx doctor` reports the active bundle, so "absent on purpose" stays distinguishable from "install went wrong".
 
+Selection is per account. `llmctx.skillBundle.<account>` overrides the global key for that account, so a machine running a regulated backend under one account and marketing sites under another does not have to share one answer — and a plain `llmctx install` no longer re-applies one account's choice to the others. Codex has no account of its own and follows the global key.
+
 An unknown bundle name is refused and changes nothing — resolving it to the empty set would prune every installed skill over one missing letter.
 
 ## Claude accounts

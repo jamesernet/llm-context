@@ -123,4 +123,44 @@ while IFS= read -r skill; do
 done < <(find "$SRC/skills" -mindepth 2 -maxdepth 2 -name SKILL.md -print |
   sed 's#/SKILL.md$##' | awk -F/ '{print $NF}' | sort -u)
 
+# --- per-account bundles ------------------------------------------------------
+# One machine runs accounts with different needs. A single global key would let
+# a plain install re-apply one account's choice to every other account.
+pahome="$tmp/per-account-home"
+mkdir -p "$pahome"
+acme_dir="$pahome/.claude-acme"
+git config --global --add llmctx.claudeAccount "acme=$acme_dir"
+git config --global llmctx.skillBundle core
+git config --global llmctx.skillBundle.acme fintech
+
+HOME="$pahome" "$SRC/bin/install-skills.sh" >/dev/null 2>&1 ||
+  fail "per-account install failed"
+[ -d "$pahome/.claude/skills/codebase-design" ] ||
+  fail "default account did not get the global bundle"
+[ -d "$pahome/.claude/skills/kyc-aml-review" ] &&
+  fail "default account picked up the acme bundle"
+[ -d "$acme_dir/skills/kyc-aml-review" ] ||
+  fail "acme account did not get its own bundle"
+[ -d "$acme_dir/skills/codebase-design" ] &&
+  fail "acme account fell back to the global bundle"
+
+# An explicit --bundle still wins for every target.
+HOME="$pahome" "$SRC/bin/install-skills.sh" --bundle website >/dev/null 2>&1 ||
+  fail "--bundle override failed"
+[ -d "$acme_dir/skills/product-ux-review" ] ||
+  fail "--bundle did not override the per-account key"
+
+# A typo in one account's key must change nothing anywhere.
+git config --global llmctx.skillBundle.acme nope
+before="$(find "$pahome/.claude/skills" -maxdepth 1 -mindepth 1 -type d | wc -l | tr -d ' ')"
+if HOME="$pahome" "$SRC/bin/install-skills.sh" >/dev/null 2>&1; then
+  fail "an unknown per-account bundle was accepted"
+fi
+[ "$before" = "$(find "$pahome/.claude/skills" -maxdepth 1 -mindepth 1 -type d | wc -l | tr -d ' ')" ] ||
+  fail "an unknown per-account bundle pruned another account"
+
+git config --global --unset llmctx.skillBundle.acme
+git config --global --unset llmctx.skillBundle
+git config --global --unset-all llmctx.claudeAccount
+
 echo "skill install tests: passed"

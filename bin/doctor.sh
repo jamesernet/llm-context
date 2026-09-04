@@ -170,13 +170,34 @@ skill_link_is_managed() {
   esac
 }
 
+# Mirrors the installer's resolution order: an account's own key, then the
+# global one, then `all`.
+doctor_bundle_for_account() {
+  local acct="$1" value=""
+  if [[ -n "$acct" ]]; then
+    value="$(git config --global --get "llmctx.skillBundle.$acct" 2>/dev/null || true)"
+  fi
+  [[ -n "$value" ]] ||
+    value="$(git config --global --get llmctx.skillBundle 2>/dev/null || true)"
+  [[ -n "$value" ]] || value=all
+  printf '%s\n' "$value"
+}
+
 check_skill_target() {
-  local target="$1" id="$2" name source_dir source_path expected_hash destination
+  local target="$1" id="$2" bundle="${3:-all}" name source_dir source_path expected_hash destination
   local metadata_source metadata_hash metadata_mode actual_hash installed copies=0 links=0
-  local issues="" expected_count=0
+  local issues="" expected_count=0 wanted
+
+  # Expect only what this target's bundle installs. Counting the whole
+  # catalogue made a correctly narrowed install report every deliberately
+  # absent skill as "needing attention", while skill-bundle passed alongside
+  # it saying those absences were on purpose.
+  wanted="$(mktemp "${TMPDIR:-/tmp}/llmctx-doctor-wanted.XXXXXX")"
+  llmctx_bundle_skills "$SRC" "$bundle" "$wanted"
 
   while IFS=$'\t' read -r name source_dir source_path expected_hash; do
     [[ -n "$name" ]] || continue
+    grep -Fxq "$name" "$wanted" || continue
     expected_count=$((expected_count + 1))
     destination="$target/$name"
     if [[ -L "$destination" && "$(readlink "$destination")" == "$source_dir" ]]; then
@@ -208,6 +229,8 @@ check_skill_target() {
     done
   fi
 
+  rm -f "$wanted"
+
   if [[ -n "$issues" ]]; then
     add_check "$id" FAIL "skills needing attention: $issues" "$SRC/bin/llmctx skills install"
   elif [[ "$copies" -gt 0 && "$links" -gt 0 ]]; then
@@ -226,35 +249,48 @@ if [[ "$hash_available" -eq 1 ]] && [[ -n "$accounts" ]] && build_skill_catalog;
   # of --json are unaffected; additional accounts are suffixed with their name.
   while IFS=$'\t' read -r account_name account_dir; do
     [[ -n "$account_name" ]] || continue
+    account_bundle="$(doctor_bundle_for_account "$account_name")"
     if [[ "$account_name" == "$LLMCTX_ACCOUNT_DEFAULT_NAME" ]]; then
-      check_skill_target "$account_dir/skills" claude-skills
+      check_skill_target "$account_dir/skills" claude-skills "$account_bundle"
     else
-      check_skill_target "$account_dir/skills" "claude-skills[$account_name]"
+      check_skill_target "$account_dir/skills" "claude-skills[$account_name]" "$account_bundle"
     fi
   done <<<"$accounts"
-  [[ -n "$account" ]] || check_skill_target "$HOME/.codex/skills" codex-skills
+  [[ -n "$account" ]] ||
+    check_skill_target "$HOME/.codex/skills" codex-skills "$(doctor_bundle_for_account "")"
 
   # Report the active bundle. `all` is the default and needs no comment; a
   # narrowed one does, because the whole point of narrowing is that some skills
   # are deliberately absent — and "absent on purpose" must be distinguishable
   # from "install went wrong" without reading two files to find out.
   active_bundle="$(git config --global --get llmctx.skillBundle 2>/dev/null || true)"
-  if [[ -z "$active_bundle" || "$active_bundle" == all ]]; then
-    add_check skill-bundle PASS "all skills install globally" ""
-  elif [[ ! -f "$SRC/skills/bundles.conf" ]]; then
+  [[ -n "$active_bundle" ]] || active_bundle=all
+  # Per-account overrides belong in this line too, or an account narrowed on
+  # purpose looks like the global one and its absences look like a bad install.
+  overrides=""
+  unknown=""
+  while IFS=$'\t' read -r account_name _; do
+    [[ -n "$account_name" ]] || continue
+    account_bundle="$(git config --global --get "llmctx.skillBundle.$account_name" 2>/dev/null || true)"
+    [[ -n "$account_bundle" ]] || continue
+    overrides="$overrides, $account_name='$account_bundle'"
+    llmctx_bundle_is_known "$SRC/skills/bundles.conf" "$account_bundle" ||
+      unknown="$unknown llmctx.skillBundle.$account_name=$account_bundle"
+  done <<<"$accounts"
+
+  if [[ ! -f "$SRC/skills/bundles.conf" && "$active_bundle" != all ]]; then
     add_check skill-bundle FAIL "llmctx.skillBundle=$active_bundle but no skills/bundles.conf in this release" \
       "git config --global --unset llmctx.skillBundle"
   else
-    unknown=""
-    IFS=',' read -r -a _bl <<<"$active_bundle"
-    for _b in "${_bl[@]}"; do
-      grep -qE "^${_b}\|" "$SRC/skills/bundles.conf" || unknown="$unknown $_b"
-    done
+    llmctx_bundle_is_known "$SRC/skills/bundles.conf" "$active_bundle" ||
+      unknown="$unknown llmctx.skillBundle=$active_bundle"
     if [[ -n "$unknown" ]]; then
-      add_check skill-bundle FAIL "llmctx.skillBundle names unknown bundle(s):$unknown" \
+      add_check skill-bundle FAIL "unknown bundle(s):$unknown" \
         "git config --global llmctx.skillBundle <name>"
+    elif [[ "$active_bundle" == all && -z "$overrides" ]]; then
+      add_check skill-bundle PASS "all skills install globally" ""
     else
-      add_check skill-bundle PASS "bundle '$active_bundle' — some skills are absent on purpose" ""
+      add_check skill-bundle PASS "bundle '$active_bundle'${overrides} — some skills are absent on purpose" ""
     fi
   fi
 else

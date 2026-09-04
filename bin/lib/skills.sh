@@ -36,3 +36,57 @@ llmctx_skill_is_managed_copy() {
     jq -e --arg managed_by "$LLMCTX_SKILL_MANAGED_BY" '.managedBy == $managed_by' \
       "$destination/$LLMCTX_SKILL_MARKER_NAME" >/dev/null 2>&1
 }
+
+# Bundle resolution lives here because the installer and doctor must agree on
+# what a bundle means. Two copies of this logic would drift, and doctor would
+# then report a correctly narrowed install as broken.
+llmctx_bundle_expand() {
+  local bundles_file="$1" bundle="$2" seen="$3" out="$4" name skill
+  grep -qxF "$bundle" "$seen" 2>/dev/null && return 0
+  printf '%s\n' "$bundle" >>"$seen"
+  while IFS='|' read -r name skill; do
+    [[ "$name" == "$bundle" ]] || continue
+    case "$skill" in
+      '+'*) llmctx_bundle_expand "$bundles_file" "${skill#+}" "$seen" "$out" ;;
+      '') ;;
+      *) printf '%s\n' "$skill" >>"$out" ;;
+    esac
+  done <"$bundles_file"
+}
+
+llmctx_bundle_is_known() {
+  local bundles_file="$1" spec="$2" b list
+  [[ "$spec" == all ]] && return 0
+  [[ -f "$bundles_file" ]] || return 1
+  IFS=',' read -r -a list <<<"$spec"
+  for b in "${list[@]}"; do
+    grep -qE "^${b}\|" "$bundles_file" || return 1
+  done
+  return 0
+}
+
+# Which skills a bundle spec installs, one name per line, into <out>.
+llmctx_bundle_skills() {
+  local src="$1" spec="$2" out="$3"
+  local bundles_file="$src/skills/bundles.conf"
+  local available seen raw dir b list
+  available="$(mktemp "${TMPDIR:-/tmp}/llmctx-bundle-avail.XXXXXX")"
+  seen="$(mktemp "${TMPDIR:-/tmp}/llmctx-bundle-seen.XXXXXX")"
+  raw="$(mktemp "${TMPDIR:-/tmp}/llmctx-bundle-raw.XXXXXX")"
+  for dir in "$src"/skills/*/ "$src"/vendor/*/; do
+    [[ -f "$dir/SKILL.md" ]] || continue
+    basename "$dir" >>"$available"
+  done
+  LC_ALL=C sort -u "$available" -o "$available"
+  if [[ "$spec" == all ]]; then
+    cp "$available" "$out"
+  else
+    IFS=',' read -r -a list <<<"$spec"
+    for b in "${list[@]}"; do
+      llmctx_bundle_expand "$bundles_file" "$b" "$seen" "$raw"
+    done
+    LC_ALL=C sort -u "$raw" -o "$raw"
+    comm -12 "$raw" "$available" >"$out"
+  fi
+  rm -f "$available" "$seen" "$raw"
+}
