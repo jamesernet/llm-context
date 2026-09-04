@@ -114,4 +114,13 @@ while IFS= read -r b; do
     fail "shipped bundle '$b' resolved to nothing"
 done < <(grep -v '^#' "$SRC/skills/bundles.conf" | grep -v '^$' | cut -d'|' -f1 | sort -u)
 
+# The converse of the check above: every shipped skill must resolve into at
+# least one bundle, or it only ever installs under `all`.
+while IFS= read -r skill; do
+  [ -n "$skill" ] || continue
+  grep -q "^[a-z0-9-]*|${skill}\$" "$SRC/skills/bundles.conf" ||
+    fail "shipped skill '$skill' belongs to no bundle"
+done < <(find "$SRC/skills" -mindepth 2 -maxdepth 2 -name SKILL.md -print |
+  sed 's#/SKILL.md$##' | awk -F/ '{print $NF}' | sort -u)
+
 echo "skill install tests: passed"

@@ -82,6 +82,21 @@ if [ -n "$duplicate_names" ]; then
   while IFS= read -r name; do err "$name" "duplicate skill name"; done <<<"$duplicate_names"
 fi
 
+# Every owned skill must belong to at least one bundle. install-skills.sh only
+# warns the other way (a bundle naming a skill that does not ship), so without
+# this an added skill silently installs under `all` and nowhere else.
+bundles_file="$SRC/skills/bundles.conf"
+if [ -f "$bundles_file" ]; then
+  for dir in "$SRC"/skills/*/; do
+    name="$(basename "$dir")"
+    [ -f "$dir/SKILL.md" ] || continue
+    grep -q "^[a-z0-9-]*|${name}\$" "$bundles_file" ||
+      err "$name" "in no bundle (add a line to skills/bundles.conf)"
+  done
+else
+  err "skills/bundles.conf" "missing"
+fi
+
 # Every owned JSON document parses.
 while IFS= read -r json_file; do
   jq empty "$json_file" >/dev/null 2>&1 || err "${json_file#"$SRC/"}" "invalid JSON"
