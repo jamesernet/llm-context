@@ -11,6 +11,7 @@ Scaffold the per-repo configuration that the engineering skills assume:
 - **Issue tracker** — where issues live (GitHub by default; local markdown is also supported out of the box)
 - **Triage labels** — the strings used for the five canonical triage roles
 - **Domain docs** — where the domain language and ADRs live (flat `CONTEXT.md`, multi-context, or OKF), and the consumer rules for reading them
+- **Work artifacts** — where a brief and a handoff go, which worktree helper to use, and how a merge is proven in this repo's merge strategy
 
 This is a prompt-driven skill, not a deterministic script. Explore, present what you found, confirm with the user, then write.
 
@@ -27,6 +28,14 @@ Look at the current repo to understand its starting state. Read whatever exists;
 - `docs/adr/` and any `src/*/docs/adr/` directories
 - `docs/agents/` — does this skill's prior output already exist?
 - `.scratch/` — sign that a local-markdown issue tracker convention is already in use
+- `docs/briefs/` — does it exist? Is it **gitignored**? A gitignored path is a deliberate
+  refusal, not an absence: check `.gitignore` and `git check-ignore -v docs/briefs`
+- `scripts/` and the repo's own docs for a worktree helper (`new-worktree.sh`,
+  `prune-worktrees.sh`, or similar) and `.githooks/` + `core.hooksPath` for hooks that
+  constrain where a commit may be made from
+- the forge's merge settings and the last ~50 subjects on the trunk
+  (`git log --format=%s -50`): squash vs merge-commit, whether subjects carry a
+  `(#N)` the forge appended, prefix style, and the actual length spread
 
 ### 2. Present findings and ask
 
@@ -75,12 +84,23 @@ Confirm the layout:
 - **Multi-context** — `CONTEXT-MAP.md` at the root pointing to per-context `CONTEXT.md` files (typically a monorepo).
 - **OKF** — no `CONTEXT.md`; domain language lives in per-concept docs under `docs/knowledge/` (frontmatter carries `okf_version`) and is indexed by `docs/architecture/domain-model.md`. Also wires in `docs/architecture/principles.md` (enforced principles are treated like ADRs) and `docs/testing/scenario-matrix.md` (test coverage). Propose this if the exploration found those files.
 
+**Section D — Work artifacts and worktrees.**
+
+> Explainer: `grab` and `handoff` have to put a brief and a handoff *somewhere*, and there is no answer that is right in every repo. Some repos commit briefs under `docs/briefs/`; others tried it, watched the copy rot away from the tracker, and now gitignore the path so it cannot come back. A skill that hardcodes either one is wrong half the time — and worse than a rule, because a skill body is an instruction that repo-level precedence never gets to override. The same goes for creating a worktree and for proving a branch merged: under squash merges the usual `git merge-base --is-ancestor` proof can never pass, which leaves the force-delete everyone is told to avoid.
+
+Confirm four things, and **report what the exploration found rather than asking cold** — the repo usually already answers these:
+
+- **Briefs** — on the tracker only (the ticket *is* the brief), or also committed under `docs/briefs/`. If `docs/briefs/` is gitignored, the answer is tracker-only and you should say so rather than offering the choice.
+- **Handoffs** — a comment on the ticket, or a file under `docs/briefs/handoffs/`.
+- **Worktrees** — name the repo's own helper if it ships one, and say what its pre-flight is for so nobody skips it. Note any hook that constrains where a commit may be made from.
+- **Merge proof and commit subjects** — squash or merge-commit, and the trunk's observed subject convention as a measurement, not a target.
+
 ### 3. Confirm and edit
 
 Show the user a draft of:
 
 - The `## Agent skills` block to add to whichever of `CLAUDE.md` / `AGENTS.md` is being edited (see step 4 for selection rules)
-- The contents of `docs/agents/issue-tracker.md`, `docs/agents/triage-labels.md`, `docs/agents/domain.md`
+- The contents of `docs/agents/issue-tracker.md`, `docs/agents/triage-labels.md`, `docs/agents/domain.md`, `docs/agents/workflow.md`
 
 Let them edit before writing.
 
@@ -112,6 +132,10 @@ The block:
 ### Domain docs
 
 [one-line summary of layout — "single-context", "multi-context", or "OKF"]. See `docs/agents/domain.md`.
+
+### Work artifacts
+
+[one-line summary: where a brief and a handoff go, and the worktree helper]. See `docs/agents/workflow.md`.
 ```
 
 Then write the three docs files using the seed templates in this skill folder as a starting point:
@@ -121,6 +145,7 @@ Then write the three docs files using the seed templates in this skill folder as
 - [issue-tracker-local.md](./issue-tracker-local.md) — local-markdown issue tracker
 - [triage-labels.md](./triage-labels.md) — label mapping
 - [domain.md](./domain.md) — domain doc consumer rules + layout
+- [workflow.md](./workflow.md) — brief/handoff location, worktree helper, merge proof, subject convention
 
 For "other" issue trackers, write `docs/agents/issue-tracker.md` from scratch using the user's description.
 

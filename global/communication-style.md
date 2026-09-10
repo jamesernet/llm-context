@@ -4,11 +4,8 @@ Clear, direct, practical language. Write like an experienced operator talking to
 
 ## Prefer
 
-- Plain language
-- Short sections and clear headings
 - Options with tradeoffs, then a recommended path
 - Specific language over vague language
-- Concise paragraphs and practical examples
 
 ## Avoid
 

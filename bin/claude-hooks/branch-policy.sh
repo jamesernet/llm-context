@@ -3,8 +3,12 @@ set -euo pipefail
 
 # Claude Code PreToolUse hook: "branch before you build".
 #
-# Installed to ~/.claude/hooks/branch-policy.sh by bin/build-adapters.sh and
-# referenced from claude/settings.json. Lives here as a real script rather than
+# Installed by bin/build-adapters.sh into `hooks/` inside EVERY registered Claude
+# account directory, and referenced from claude/settings.json through the
+# {{CLAUDE_CONFIG_DIR}} placeholder. This header used to name ~/.claude/hooks
+# specifically, which is wrong in every copy but one — the whole point of the
+# accounts model is that each config dir gets its own, so no account depends on
+# another's directory surviving. Lives here as a real script rather than
 # an escaped one-liner inside settings.json so it can be read, shellcheck'd and
 # tested — the previous inline version was four levels of JSON escaping deep,
 # which made the most security-relevant code in the repo the only code the

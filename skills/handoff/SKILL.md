@@ -5,7 +5,9 @@ argument-hint: "What will the next session be used for?"
 disable-model-invocation: true
 ---
 
-Write a handoff document summarising the current conversation so a fresh agent can continue the work. Save it to `docs/briefs/handoffs/<yyyy-mm-dd>-<slug>.md` in the current repo (create the directory if needed) — that's the fixed, tool-agnostic home any agent checks on session start. Delete the file once the next session has absorbed it. If there is no repo (a non-code session), fall back to the OS temporary directory.
+Write a handoff summarising the current conversation so a fresh agent can continue the work.
+
+**Where it goes is the repo's call, so read `docs/agents/workflow.md` if `setup-skills` has been run here, else the repo's CLAUDE.md/AGENTS.md first.** Two shapes are in use. Where the repo keeps handoffs in the tree, write `docs/briefs/handoffs/<yyyy-mm-dd>-<slug>.md` and delete it once the next session has absorbed it. Where the repo has retired that path — core-api gitignores it — **a mid-flight handoff is a comment on the ticket**: what you did, what you were about to do, and what you learned the ticket does not already say. Do not create a directory the repo does not already use; that is how a retired mirror comes back. If there is no repo at all (a non-code session), fall back to the OS temporary directory.
 
 This is for **session-to-session continuity** of work you're already carrying — not for distributing a unit of work to someone else, and not where requirements live. If you're handing a task to another agent or person to own, write an agent brief on the issue instead (see the `triage` skill's `AGENT-BRIEF.md`) and keep the durable requirements there. A handoff doc points at those artifacts; it does not replace them.
 
