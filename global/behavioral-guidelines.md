@@ -107,10 +107,20 @@ pushed after the merge.
 **That does not mean you are left with `git branch -D`.** `-d` checks *merged to its
 upstream*, not only *merged to HEAD*, so a branch you **pushed** — whose remote-tracking
 ref still points at the same commit — deletes cleanly with no force, warning that it was
-merged to its upstream rather than to HEAD. Since a squash merge normally follows a
-pushed branch and a PR, `-d` is the usual case rather than the exception. `-D` is only
-reached for a branch that never left the machine, and there "merged" is not a question
-git can answer at all — so it is still not the answer.
+merged to its upstream rather than to HEAD.
+
+**That ref has to still exist, and the usual cleanup destroys it.**
+`gh pr merge --delete-branch` removes the *remote* branch, so after the next
+`fetch --prune` there is no upstream left to compare against and `-d` refuses again.
+Measured against a scratch repo with a real remote and a real squash merge: pushed with
+the ref intact **deletes**, never pushed **refuses**, pushed-then-remote-deleted
+**refuses**. So `-d` is the case *before* cleanup rather than the usual case, and the
+ORDER decides which one you are in — delete the local branch while its remote-tracking
+ref is still there, or fall back to the helper's `headRefOid` proof, which does not care
+either way.
+
+`-D` is only reached for a branch that never left the machine, and there "merged" is not
+a question git can answer at all — so it is still not the answer.
 
 If the target branch is ambiguous, the worktree is dirty, or the merge cannot be proven
 by a method that fits the repo's merge strategy, stop and ask. Never force-delete a
