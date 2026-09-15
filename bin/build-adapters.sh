@@ -324,9 +324,55 @@ render_codex() {
   echo "There is no \`PreToolUse\` hook in Codex. The \"branch before you build\" rule is prose-only here — rely on remote branch protection or a repo pre-commit hook as the backstop."
 }
 
+# A LINKED WORKTREE MUST NOT INSTALL. $SRC is this script's own parent, and the
+# Claude adapter references the global files BY PATH rather than inlining them —
+# so running from a worktree writes `@import <worktree>/global/...` into every
+# registered account's CLAUDE.md. That path dies with the worktree, and a missing
+# @import target is SILENT: every session afterwards loses the global rules with
+# no error, and nothing connects the loss to the cause. Observed 2026-09-03.
+#
+# Refusing rather than silently resolving to the primary checkout: someone who
+# runs this from a worktree means to install THAT branch's adapters, and quietly
+# installing different content is the same class of surprise one level down.
+# LLMCTX_ALLOW_WORKTREE_INSTALL=1 is the deliberate override; --check is exempt
+# because it writes nothing.
+refuse_worktree_install() {
+  local git_dir common_dir primary
+  git -C "$SRC" rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 0
+  git_dir="$(cd "$SRC" && cd "$(git rev-parse --git-dir)" && pwd)" || return 0
+  common_dir="$(cd "$SRC" && cd "$(git rev-parse --git-common-dir)" && pwd)" || return 0
+  [[ "$git_dir" != "$common_dir" ]] || return 0
+  [[ -z "${LLMCTX_ALLOW_WORKTREE_INSTALL:-}" ]] || {
+    echo "warning: installing adapters from a linked worktree (LLMCTX_ALLOW_WORKTREE_INSTALL set)." >&2
+    echo "         every account's CLAUDE.md will @import from $SRC, which dies with this worktree." >&2
+    return 0
+  }
+  primary="$(dirname "$common_dir")"
+  cat >&2 <<EOF
+error: refusing to install adapters from a linked worktree.
+
+  running from: $SRC
+  primary:      $primary
+
+The Claude adapter @imports the global files by path, so installing from here
+would point every account's CLAUDE.md at this worktree. Remove the worktree and
+those imports resolve to nothing — silently, with no error in any later session.
+
+Run it from the primary checkout instead:
+
+  git -C "$primary" status        # confirm it is on the branch you want
+  "$primary/bin/build-adapters.sh"
+
+To install from here anyway, set LLMCTX_ALLOW_WORKTREE_INSTALL=1.
+EOF
+  exit 1
+}
+
 # Resolved once, before anything is written. A malformed registry must stop the
 # run rather than quietly reduce it to the accounts that happened to parse.
 accounts="$(llmctx_accounts_selected "$account")" || exit 1
+
+[[ "$check_only" -eq 1 ]] || refuse_worktree_install
 
 if [[ "$check_only" -eq 1 ]]; then
   drift=0
