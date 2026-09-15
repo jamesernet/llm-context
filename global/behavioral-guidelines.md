@@ -99,11 +99,28 @@ Run one session per worktree; remove it (`git worktree remove`) once merged. Sol
 
 `git merge-base --is-ancestor <branch> <target>` is the proof only where merges preserve
 commits. **Under squash merges it reports "not merged" for every correctly-merged
-branch**, because what landed is a new commit with a different SHA — which leaves
-`git branch -D`, the force-delete this file tells you never to reach for. Where a repo
-ships a pruning helper (e.g. `scripts/prune-worktrees.sh`), use it: the workable proof
-there is matching the branch tip against the merged PR's `headRefOid`, which also catches
-commits pushed after the merge.
+branch**, because what landed is a new commit with a different SHA. Where a repo ships a
+pruning helper (e.g. `scripts/prune-worktrees.sh`), use it: the workable proof there is
+matching the branch tip against the merged PR's `headRefOid`, which also catches commits
+pushed after the merge.
+
+**That does not mean you are left with `git branch -D`.** `-d` checks *merged to its
+upstream*, not only *merged to HEAD*, so a branch you **pushed** — whose remote-tracking
+ref still points at the same commit — deletes cleanly with no force, warning that it was
+merged to its upstream rather than to HEAD.
+
+**That ref has to still exist, and the usual cleanup destroys it.**
+`gh pr merge --delete-branch` removes the *remote* branch, so after the next
+`fetch --prune` there is no upstream left to compare against and `-d` refuses again.
+Measured against a scratch repo with a real remote and a real squash merge: pushed with
+the ref intact **deletes**, never pushed **refuses**, pushed-then-remote-deleted
+**refuses**. So `-d` is the case *before* cleanup rather than the usual case, and the
+ORDER decides which one you are in — delete the local branch while its remote-tracking
+ref is still there, or fall back to the helper's `headRefOid` proof, which does not care
+either way.
+
+`-D` is only reached for a branch that never left the machine, and there "merged" is not
+a question git can answer at all — so it is still not the answer.
 
 If the target branch is ambiguous, the worktree is dirty, or the merge cannot be proven
 by a method that fits the repo's merge strategy, stop and ask. Never force-delete a
