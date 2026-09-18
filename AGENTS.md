@@ -35,5 +35,8 @@ Run `actionlint .github/workflows/ci.yml` when changing CI. Run
 
 ## Work tracking
 
-GitHub Issues are the source of truth. Working briefs and handoffs follow the
-conventions in `docs/briefs/README.md`.
+GitHub Issues are the source of truth. The brief is the issue, not a copy of
+it, and a mid-flight handoff is a comment on that issue. This repository
+declares `"briefs": "tracker"` in `.llmctx.json`, so there is deliberately no
+mirror in the tree — do not create one. Working notes stay local and
+uncommitted.
