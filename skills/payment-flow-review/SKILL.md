@@ -21,6 +21,31 @@ by severity with evidence, plus the state diagram if one doesn't exist yet.
 - If payment state is a single mutable status string with no transition
   guard, that is finding #1.
 
+Draw it as a Mermaid `stateDiagram-v2`, labelling every transition with its
+trigger. It renders on the tracker, it diffs, and an illegal transition is
+visible by its absence — which is the point of drawing it at all.
+
+```mermaid
+stateDiagram-v2
+  [*] --> created
+  created --> authorized: POST /payments
+  created --> failed: PSP decline
+  authorized --> captured: capture (full or partial)
+  authorized --> voided: void before capture
+  authorized --> expired: auth window elapsed
+  captured --> settled: settlement file
+  settled --> refunded: refund (full or partial)
+  settled --> disputed: chargeback webhook
+  disputed --> settled: dispute won
+  disputed --> refunded: dispute lost
+```
+
+Roughly fifteen states is the ceiling; past that Mermaid's layout stops
+helping and the machine wants splitting per flow. Nothing in a terminal
+renders Mermaid, so an agent cannot see its own syntax errors: stay on
+`stateDiagram-v2`, `flowchart` and `sequenceDiagram`, and confirm the
+diagram rendered before relying on it.
+
 ### 2. Idempotency
 - Every mutating PSP call carries an idempotency key derived from the
   business operation — not a fresh UUID per attempt, which defeats the point.

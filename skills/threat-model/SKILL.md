@@ -23,6 +23,37 @@ them. Mark every **trust boundary**: internet↔service, service↔service
 with different privileges, user↔admin, us↔PSP/vendor, code↔untrusted
 input (uploads, webhooks, LLM output). Boundaries are where threats live.
 
+Draw it as a Mermaid `flowchart`, one `subgraph` per trust zone. The artifact
+lands on the tracker, where Mermaid renders natively, and it stays text — so
+it diffs, and the next pass edits it instead of redrawing it. A crossing you
+cannot place in a subgraph is a boundary you have not named yet.
+
+```mermaid
+flowchart LR
+  subgraph untrusted[Untrusted — internet]
+    U[Cardholder]
+    PSP[[PSP webhook]]
+  end
+  subgraph edge[DMZ — public API]
+    API[checkout-api]
+  end
+  subgraph core[Trusted — internal]
+    WORKER[settlement-worker]
+    LEDGER[(ledger)]
+  end
+  U -->|card details| API
+  PSP -->|signed event| API
+  API -->|authorized amount| LEDGER
+  WORKER --> LEDGER
+```
+
+Keep it to roughly fifteen nodes — Mermaid's layout is not controllable and
+degrades past that, which is the same scope cap step 1 already sets. Nothing
+in a terminal renders Mermaid, so an agent cannot see its own syntax errors:
+stay on `flowchart`, `stateDiagram-v2` and `sequenceDiagram`, confirm the
+diagram rendered before treating the pass as finished, and leave anything
+that is not graph-shaped in prose rather than forcing it into a diagram.
+
 ### 3. Enumerate with STRIDE, per boundary crossing
 - **S**poofing — can the caller be someone else? (auth on every crossing,
   webhook signatures, internal service auth)
