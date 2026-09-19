@@ -148,7 +148,7 @@ bin/worktree.sh ls
 bin/worktree.sh rm feature/example
 ```
 
-Briefs live in a project's `docs/briefs/`; handoffs live in `docs/briefs/handoffs/`. The issue tracker remains the source of truth. Commits should be logically scoped, use a clear subject of at most 72 characters, and omit `Co-authored-by` trailers. Nothing pushes or opens a PR without an explicit request.
+Briefs and handoffs live on the issue tracker, which is the source of truth: the brief is the issue, and a mid-flight handoff is a comment on it. A repository that wants a committed mirror keeps `docs/briefs/README.md`, which is what the policy checker expects by default; one that does not declares `"briefs": "tracker"` in `.llmctx.json`, as this repository does. Commits should be logically scoped, use a clear subject of at most 72 characters, and omit `Co-authored-by` trailers. Nothing pushes or opens a PR without an explicit request.
 
 Once a local branch is proven merged into `main` or `stage`, an agent may remove its clean worktree and delete the merged local branch with the safe Git checks documented in the global guidelines. It never force-deletes or removes a remote branch as part of that cleanup.
 
