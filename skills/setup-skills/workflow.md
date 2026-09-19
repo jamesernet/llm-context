@@ -10,7 +10,9 @@ and `triage` read it. Replace the bracketed parts and delete the options that do
 **On the tracker only.** The ticket *is* the brief. Nothing is committed. A brief that
 restates its ticket is a second copy free to drift, so there is no file to write and no
 directory to create. Working notes stay wherever the harness puts temporary files, and are
-never committed.
+never committed. Where `.llmctx.json` declares `"briefs": "tracker"`, that file is the
+record of the decision — state the consequence here and point at it, rather than restating
+the choice and creating the second copy this section exists to prevent.
 
 **Committed under `docs/briefs/`.** One file per brief, `docs/briefs/<issue-id>-<slug>.md`,
 written in the worktree. The tracker is still the source of truth: if the file and the
