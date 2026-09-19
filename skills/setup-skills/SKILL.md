@@ -28,8 +28,16 @@ Look at the current repo to understand its starting state. Read whatever exists;
 - `docs/adr/` and any `src/*/docs/adr/` directories
 - `docs/agents/` — does this skill's prior output already exist?
 - `.scratch/` — sign that a local-markdown issue tracker convention is already in use
+- `.llmctx.json` — a committed declaration of repository intent, where the repo ships one.
+  `briefs` is `tree` (a mirror under `docs/briefs/` is expected) or `tracker` (the narrative
+  lives on the issue tracker and there is deliberately no mirror); it answers Section D's
+  first question outright. `branchPolicy` (`off`/`remind`/`ask`/`deny`) and
+  `protectedBranches` are the declared form of the commit constraint the `.githooks/`
+  bullet below otherwise has to infer. Most repos have no such file; that is not a finding.
 - `docs/briefs/` — does it exist? Is it **gitignored**? A gitignored path is a deliberate
-  refusal, not an absence: check `.gitignore` and `git check-ignore -v docs/briefs`
+  refusal, not an absence: check `.gitignore` and `git check-ignore -v docs/briefs`.
+  A declared `briefs` outranks both, because it is a statement rather than an inference:
+  an absent directory alongside `"briefs": "tracker"` is a decision, not an omission
 - `scripts/` and the repo's own docs for a worktree helper (`new-worktree.sh`,
   `prune-worktrees.sh`, or similar) and `.githooks/` + `core.hooksPath` for hooks that
   constrain where a commit may be made from
@@ -90,7 +98,7 @@ Confirm the layout:
 
 Confirm four things, and **report what the exploration found rather than asking cold** — the repo usually already answers these:
 
-- **Briefs** — on the tracker only (the ticket *is* the brief), or also committed under `docs/briefs/`. If `docs/briefs/` is gitignored, the answer is tracker-only and you should say so rather than offering the choice.
+- **Briefs** — on the tracker only (the ticket *is* the brief), or also committed under `docs/briefs/`. Where `.llmctx.json` declares `"briefs": "tracker"`, or `docs/briefs/` is gitignored, the answer is tracker-only: report it rather than offering the choice. Offering a decision the repo has already recorded is how a retired mirror gets recreated.
 - **Handoffs** — a comment on the ticket, or a file under `docs/briefs/handoffs/`.
 - **Worktrees** — name the repo's own helper if it ships one, and say what its pre-flight is for so nobody skips it. Note any hook that constrains where a commit may be made from.
 - **Merge proof and commit subjects** — squash or merge-commit, and the trunk's observed subject convention as a measurement, not a target.
