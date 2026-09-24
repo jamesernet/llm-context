@@ -122,6 +122,27 @@ either way.
 `-D` is only reached for a branch that never left the machine, and there "merged" is not
 a question git can answer at all — so it is still not the answer.
 
+**A stack merges parent-first, and the child does not follow on its own.** Where one
+branch is based on another and both have PRs, merging the parent leaves the child's base
+pointing at a branch that is now identical to the trunk. The PR no longer says where the
+change is going, and what happens to it next depends on whether that branch is later
+deleted — which the rule above tells you not to do. So the two rules meet here, and the
+missing step is explicit:
+
+```
+gh pr merge <parent> --merge
+gh pr edit  <child> --base <trunk>     # the step nothing does for you
+gh pr merge <child> --merge
+```
+
+Measured on 2026-09-24 against a real two-PR stack: the parent was merged **without**
+`--delete-branch`, per the rule above, and the child's base was still the parent's branch
+afterwards. Nothing retargeted it; `gh pr edit` did.
+
+Say in the child's body that it is stacked and on what, and that its base retargets to the
+trunk once the parent lands — otherwise a reviewer who opens the child first sees the
+parent's commits in the diff and cannot tell which half they are reviewing.
+
 If the target branch is ambiguous, the worktree is dirty, or the merge cannot be proven
 by a method that fits the repo's merge strategy, stop and ask. Never force-delete a
 branch or delete a remote branch without an explicit request.
