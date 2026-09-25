@@ -56,7 +56,7 @@ These are referenced by the skills above; imported so the set is self-contained.
 | [setup-skills](setup-skills/) | `/setup-skills` | to-prd, to-issues, triage (per-project tracker + label config) |
 | [triage](triage/) | `/triage` | front-end of the intake→triage→prd→issues pipeline |
 
-_`review` was dropped 2026-07 — `implement` uses the built-in `/code-review`; it lives in git history if ever needed._
+_`review` was dropped 2026-07 — `implement` uses the built-in `/code-review`; it lives in git history if ever needed. Not to be confused with `review-prose`, which reviews writing and deliberately declines code._
 
 ## product & UX (mine — not upstream)
 | skill | invoke | scope |
@@ -65,6 +65,7 @@ _`review` was dropped 2026-07 — `implement` uses the built-in `/code-review`; 
 | [metadata-audit](metadata-audit/) | `/metadata-audit` · auto | gated audit of a page's machine-readable layer; robots/canonical/AI-crawler posture, llms.txt, OG/Twitter, JSON-LD; supporting [decision-tree](metadata-audit/references/decision-tree.md), [schema-by-page-type](metadata-audit/references/schema-by-page-type.md), [report-template](metadata-audit/references/report-template.md), [inventory.py](metadata-audit/scripts/inventory.py) |
 | [site-visual-baseline](site-visual-baseline/) | `/site-visual-baseline` · auto | reproducible screenshot record across viewports; before/after evidence, capture traps |
 | [website-audit-package](website-audit-package/) | `/website-audit-package` · auto | assemble screenshots, UX, perf and metadata findings into one client-ready package |
+| [review-prose](review-prose/) | `/review-prose` · auto | review writing meant for an audience by running a technical editor, a plain-voice editor and the target reader independently, then synthesizing by agreement |
 
 ## payments & fintech (mine — not upstream)
 | skill | invoke | scope |
