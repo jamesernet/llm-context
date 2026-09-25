@@ -25,7 +25,7 @@ repo() {
 run() { # dir [mode] -> output on stdout, exit status in $status
   local dir="$1" mode="${2:-check}"
   set +e
-  output="$(CI= HOME="$tmp/home" "$CHECK" "$mode" "$dir" 2>&1)"
+  output="$(CI='' HOME="$tmp/home" "$CHECK" "$mode" "$dir" 2>&1)"
   status=$?
   set -e
 }
@@ -126,12 +126,14 @@ run "$d"
 
 # --- every shipped target file parses and declares a description ------------
 for conf in "$SRC"/targets/*.conf; do
-  grep -qE '^description=.+' "$conf" || fail "$(basename "$conf") has no description"
+  name="$(basename "$conf")"
+  body="$(cat "$conf")"
+  grep -qE '^description=.+' "$conf" || fail "$name has no description"
   while IFS= read -r line; do
     [[ "$line" =~ ^[[:space:]]*# ]] && continue
     [[ -z "$line" ]] && continue
-    [[ "$line" =~ ^[a-z_]+= ]] || fail "$(basename "$conf"): not key=value: $line"
-  done <"$conf"
+    [[ "$line" =~ ^[a-z_]+= ]] || fail "$name: not key=value: $line"
+  done <<<"$body"
 done
 
 echo "env-check tests: passed"
