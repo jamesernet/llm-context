@@ -27,7 +27,7 @@ with decisions the author already made.
 
 | | What | Why it matters |
 |---|---|---|
-| **Voice** | The author's voice/style guide, if one exists | Without it a reviewer proposes hype, jokes, or a chattier register |
+| **Voice** | The author's voice/style guide, if one exists — in this repository, `brand/voice-and-style.md` | Without it a reviewer proposes hype, jokes, or a chattier register |
 | **Format** | The format or template this kind of piece follows | Lets a reviewer judge structure against the intended shape |
 | **Exemplar** | A finished piece by the same author | Register and density calibration; catches a templated opener reused across pieces |
 | **Intent** | One line: what should the reader do or believe after reading | Reviewers otherwise guess the thesis, and each guesses differently |
@@ -52,7 +52,13 @@ is available, ask — those three change every reviewer's verdict.
 
 ### 2. Run three reviewers in parallel
 
-One message, three agents, each read-only and each told not to edit any file.
+Three agents, dispatched in a single message so they run concurrently and none
+can see another's findings. Whatever your harness calls that — a general-purpose
+subagent, a task, a worker — each one gets the same context pack, is told to
+report rather than edit, and is given no path to the others' output. If your
+harness cannot run agents, run the three passes yourself in separate turns
+without re-reading the previous report: independence is the property that
+matters, not the parallelism.
 
 **Technical editor.** Lens: precision, structure, argument integrity. Hunts claims
 without support, terms used inconsistently, sections that restate an earlier section,
