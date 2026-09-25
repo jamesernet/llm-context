@@ -57,4 +57,20 @@ fi
 [[ "$LLMCTX_POLICY_ERROR" == *"unsupported schemaVersion"* ]] ||
   fail "unexpected validation error: $LLMCTX_POLICY_ERROR"
 
+# environment: names only, never a value or a vault reference. The validator is
+# the gate that keeps a client identity map out of a repo the client can read.
+printf '%s\n' '{"schemaVersion":1,"environment":{"target":"cloudflare-pages","cloud":{"cloudflareAccount":"abc"},"secrets":["CLOUDFLARE_API_TOKEN"]}}' >"$repo/.llmctx.json"
+llmctx_policy_validate "$repo" || fail "a names-only environment should validate: $LLMCTX_POLICY_ERROR"
+
+printf '%s\n' '{"schemaVersion":1,"environment":{"target":"cloudflare-pages","secrets":["op://Vault/Item/field"]}}' >"$repo/.llmctx.json"
+llmctx_policy_validate "$repo" && fail "a vault reference in secrets must be rejected"
+
+printf '%s\n' '{"schemaVersion":1,"environment":{"target":"Not A Slug"}}' >"$repo/.llmctx.json"
+llmctx_policy_validate "$repo" && fail "a non-slug target must be rejected"
+
+printf '%s\n' '{"schemaVersion":1,"environment":{"cloud":{"awsProfile":"x"}}}' >"$repo/.llmctx.json"
+llmctx_policy_validate "$repo" && fail "an environment without a target must be rejected"
+
+rm -f "$repo/.llmctx.json"
+
 echo "policy tests: passed"

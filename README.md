@@ -104,6 +104,48 @@ brand/ ── explicit ────> existing publication repositories
 
 Generated global adapters and portable managed settings are never edited as their source. Change files here, rebuild with `llmctx install`, and verify with `llmctx doctor`. Settings that identify private tools or grant personal permissions belong in a private machine configuration; the merge preserves keys this repository does not declare.
 
+## Environments
+
+A project declares what it needs to run and deploy, by name, in the same
+`.llmctx.json` it already commits:
+
+```json
+"environment": {
+  "target": "cloudflare-pages",
+  "cloud": { "awsProfile": "acme-readonly", "awsRegion": "us-west-2" },
+  "secrets": ["CLOUDFLARE_API_TOKEN"]
+}
+```
+
+`targets/<name>.conf` describes a *kind* of destination; adding one is adding a
+file. The declaration names identifiers and environment variable NAMES and
+nothing else, and the validator enforces that on **every** field rather than on
+`secrets` alone: cloud values must be plain identifiers, tools and MCP servers
+plain names, and any string anywhere in the block that carries a scheme, a
+host, or a known credential shape is rejected. A vault path or an SSO start URL
+here would be a client identity map in a repository that client can read.
+
+```sh
+bin/llmctx env check [repo]      does what this repo declares resolve here?
+bin/llmctx env explain [repo]    the declaration, and what is still manual
+```
+
+`check` is read-only: no network, no credentials, and it never sources
+`.envrc`, because sourcing would run arbitrary repository code during a check.
+It verifies resolution, not validity — whether a profile still has working
+credentials only using it can tell you, and finding that out is a deploy.
+
+What it does not do is judge whether an identifier is the *right* one. A profile
+name that resolves may still be the wrong account; only the human who granted it
+knows. The validator keeps credentials out and the checker says what is missing.
+
+Where a value comes from is layered, lowest to highest: the target file, the
+repository's declaration, then the machine's binding in `workstation`. Claude
+account routing is orthogonal and the environment layer never sets it.
+
+There is no writer here, deliberately, for the same reason there is no
+repository-init command: `project-scaffold` writes, this reports.
+
 ## Repository policy
 
 Projects may commit `.llmctx.json`:
@@ -183,6 +225,7 @@ Resolution order is preset → client → repo-local git config, mirroring git's
 ```text
 global/       portable behavioral, communication, and handoff rules
 claude/       portable Claude safety settings
+targets/      hosting-target descriptions for environment declarations
 skills/       owned skills
 vendor/       pinned third-party skills
 brand/        intentionally public personal-brand context

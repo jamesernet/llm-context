@@ -23,6 +23,16 @@ Two checks are positions a repository may reasonably take the other side of. Bot
 
 `briefs` is `tree` (default) or `tracker`. `tree` expects `docs/briefs/README.md`. `tracker` says the narrative lives on the issue tracker and there is deliberately no mirror in the repository — *a brief that restates its ticket is worse than no brief, because it is a second copy to drift.*
 
+`environment` is optional. It declares the hosting target, cloud identifiers,
+secret NAMES, tools and MCP server names a project needs — never a value and
+never a vault reference. The validator constrains every field, not only
+`secrets`: cloud values must be plain identifiers, tools and MCP names plain
+slugs, and any string carrying a scheme, a host or a known credential shape is
+rejected wherever it appears in the block. `target` must
+name a file in `targets/`. `llmctx env check` reports whether the declaration
+resolves on this machine; `llmctx env explain` prints it with the steps that
+remain manual.
+
 `claudeImport` is `true` (default) or `false`. `true` expects a `CLAUDE.md` whose body is `@AGENTS.md`. `false` says the repository is deliberately tool-neutral and keeps `AGENTS.md` alone.
 
 These exist because both were being reported against repositories that had chosen otherwise on purpose, and a checker a mature repository must learn to ignore is a checker nobody reads.
