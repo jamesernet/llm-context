@@ -78,8 +78,8 @@ run "$d"
 [[ "$status" -eq 1 ]] || fail "a target requiring env names must fail when they are absent"
 
 # --- AWS profile resolution, and the measured CI exemption ------------------
-d="$(repo amplify '{"schemaVersion":1,"environment":{"target":"aws-amplify","cloud":{"awsProfile":"acme","awsRegion":"us-west-2"}}}')"
-touch "$d/customHttp.yml"
+d="$(repo amplify '{"schemaVersion":1,"environment":{"target":"aws-amplify","cloud":{"awsProfile":"acme"}}}')"
+touch "$d/amplify.yml"
 run "$d"
 [[ "$output" == *"~/.aws/config does not exist"* ]] || fail "expected the missing-config finding: $output"
 set +e
