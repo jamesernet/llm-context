@@ -21,7 +21,7 @@ llmctx_policy_file() {
 }
 
 llmctx_policy_validate() {
-  local root="$1" file schema profile branch_policy invalid_branch
+  local root="$1" file schema profile branch_policy invalid_branch invalid_environment
   file="$(llmctx_policy_file "$root")"
   LLMCTX_POLICY_ERROR=""
   [[ -f "$file" ]] || return 0
@@ -58,6 +58,35 @@ llmctx_policy_validate() {
       return 1
       ;;
   esac
+
+  # environment: the project's declaration of what it needs to run and deploy.
+  # NAMES ONLY by design — a vault path or a credential here would be a client
+  # identity map in a repo the client can read. The value behind a name lives in
+  # a vault; the binding between them lives in workstation.
+  invalid_environment="$(jq -r '
+    if has("environment") | not then ""
+    elif (.environment | type) != "object" then "environment must be an object"
+    elif (.environment.target // "") == "" then "environment.target is required"
+    elif (.environment.target | type) != "string" then "environment.target must be a string"
+    elif (.environment.target | test("^[a-z0-9][a-z0-9-]*$") | not)
+      then "environment.target must be a lowercase slug: \(.environment.target)"
+    elif (.environment | has("cloud")) and ((.environment.cloud | type) != "object")
+      then "environment.cloud must be an object"
+    elif [(.environment.cloud // {}) | to_entries[] | select((.value | type) != "string" or (.value | length) == 0)] | length > 0
+      then "environment.cloud values must be non-empty strings"
+    elif [(.environment.secrets // []), (.environment.tools // []), (.environment.mcp // [])
+          | if type != "array" then "bad" else empty end] | length > 0
+      then "environment.secrets, .tools and .mcp must be arrays"
+    elif [(.environment.secrets // [])[] | select(test("^[A-Z][A-Z0-9_]*$") | not)] | length > 0
+      then "environment.secrets must be environment variable NAMES, not values"
+    elif [(.environment.secrets // [])[] | select(test("^(op|vault|aws)://"))] | length > 0
+      then "environment.secrets must not contain references; the binding lives in workstation"
+    else "" end
+  ' "$file")"
+  [[ -z "$invalid_environment" ]] || {
+    llmctx_policy_error "$invalid_environment in $file"
+    return 1
+  }
 
   invalid_branch="$(jq -r '
     if has("protectedBranches") and
