@@ -70,7 +70,7 @@ target_file="$TARGETS_DIR/$target.conf"
 # Read the target file without sourcing it, for the same reason .envrc is not
 # sourced: a conf file is data.
 field() { sed -n "s/^$1=//p" "$target_file" | head -1; }
-split() { tr ',' '\n' <<<"${1:-}" | sed '/^$/d'; }
+split() { tr ',' '\n' <<<"${1:-}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//;/^$/d'; }
 
 description="$(field description)"
 
@@ -82,6 +82,10 @@ if [[ "$mode" == "explain" ]]; then
     echo "Cloud identifiers (names, not credentials):"
     echo "$cloud"
   }
+  for f in requires_cli optional_cli skills; do
+    v="$(field "$f")"
+    [[ -n "$v" ]] && printf '%-8s    %s\n' "${f%%_*}" "$(split "$v" | tr '\n' ' ')"
+  done
   optional="$(field optional_secrets)"
   [[ -n "$optional" ]] && printf '%-8s    %s (this target may need; declare the ones you use)\n' "optional" "$(split "$optional" | tr '\n' ' ')"
   for key in secrets tools mcp; do
@@ -94,7 +98,8 @@ if [[ "$mode" == "explain" ]]; then
   [[ -n "$(field offboard_hint)" ]] && echo "  offboard: $(field offboard_hint)"
   echo
   echo "Values behind these names live in a vault, and the binding between them"
-  echo "lives in workstation. Nothing here is a credential."
+  echo "lives in workstation. Everything above is a name the validator has"
+  echo "checked carries no scheme, host or credential shape."
   exit 0
 fi
 
@@ -132,7 +137,10 @@ if [[ -n "$aws_profile" ]]; then
       add MISSING "aws:$aws_profile" "declared but ~/.aws/config does not exist" \
         "create it, or drop awsProfile from the declaration"
     fi
-  elif grep -qE "^\[(profile )?${aws_profile}\]" "$HOME/.aws/config"; then
+  # -F and -x: the profile name is data, not a pattern. As a regex, an
+  # awsProfile of ".*" reported OK against a config holding only unrelated
+  # profiles.
+  elif grep -qxF -e "[$aws_profile]" -e "[profile $aws_profile]" "$HOME/.aws/config"; then
     add OK "aws:$aws_profile" "configured in ~/.aws/config" ""
   else
     add MISSING "aws:$aws_profile" "declared but not present in ~/.aws/config" \
@@ -149,9 +157,25 @@ if [[ -n "$cf_account" ]]; then
   for candidate in wrangler.jsonc wrangler.json wrangler.toml; do
     [[ -f "$root/$candidate" ]] && wrangler_file="$root/$candidate" && break
   done
+  # Extract wrangler's account id and compare it exactly. The first version
+  # was `grep -q "$cf_account"`: unanchored, not fixed-string, and with the
+  # declared value reaching grep as a pattern. Measured consequences —
+  # cloudflareAccount "-r" made grep read stdin and the check hung; "." matched
+  # any non-empty file; and an id mentioned in a migration comment reported
+  # agreement with the account the project had moved away from, which is
+  # precisely the confusion this check exists to catch.
+  found=""
+  if [[ -n "$wrangler_file" ]]; then
+    case "$wrangler_file" in
+      *.toml) found="$(sed -n 's/^[[:space:]]*account_id[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$wrangler_file" | head -1)" ;;
+      *) found="$(sed -n 's/.*"account_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$wrangler_file" | head -1)" ;;
+    esac
+  fi
   if [[ -z "$wrangler_file" ]]; then
     add OK "cloudflare:account" "declared; no wrangler config to disagree with" ""
-  elif grep -q "$cf_account" "$wrangler_file"; then
+  elif [[ -z "$found" ]]; then
+    add OK "cloudflare:account" "declared; $(basename "$wrangler_file") sets no account_id" ""
+  elif [[ "$found" == "$cf_account" ]]; then
     add OK "cloudflare:account" "agrees with $(basename "$wrangler_file")" ""
   else
     add CONFLICT "cloudflare:account" "declared id is absent from $(basename "$wrangler_file")" \
@@ -183,8 +207,16 @@ done < <(split "$(field check_files)")
 #
 # Checked by NAME only, and only in the gitignored local file. The value is
 # never read, printed, or compared.
+# The comment above and the fix text both say "the gitignored local file", so
+# check that it is one. A committed .envrc.local would otherwise pass this
+# section while being exactly the thing the section exists to prevent.
+if [[ -f "$root/.envrc.local" ]] && git -C "$root" ls-files --error-unmatch .envrc.local >/dev/null 2>&1; then
+  add CONFLICT "secret:storage" ".envrc.local is tracked by git" \
+    "git rm --cached .envrc.local and add it to .gitignore; then rotate anything it held"
+fi
+
 while IFS= read -r secret; do
-  if [[ -f "$root/.envrc.local" ]] && grep -qE "^[[:space:]]*(export[[:space:]]+)?$secret=" "$root/.envrc.local"; then
+  if [[ -f "$root/.envrc.local" ]] && grep -qE "^[[:space:]]*(export[[:space:]]+)?$(printf '%s' "$secret" | sed 's/[^A-Z0-9_]//g')=" "$root/.envrc.local"; then
     add OK "secret:$secret" "bound in .envrc.local" ""
   elif [[ -n "${CI:-}" ]]; then
     add OK "secret:$secret" "CI — supplied by the runner, not bound here" ""

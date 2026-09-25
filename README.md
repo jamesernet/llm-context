@@ -119,8 +119,11 @@ A project declares what it needs to run and deploy, by name, in the same
 
 `targets/<name>.conf` describes a *kind* of destination; adding one is adding a
 file. The declaration names identifiers and environment variable NAMES and
-nothing else — a vault path or a credential here would be a client identity map
-in a repository that client can read, so the validator rejects both.
+nothing else, and the validator enforces that on **every** field rather than on
+`secrets` alone: cloud values must be plain identifiers, tools and MCP servers
+plain names, and any string anywhere in the block that carries a scheme, a
+host, or a known credential shape is rejected. A vault path or an SSO start URL
+here would be a client identity map in a repository that client can read.
 
 ```sh
 bin/llmctx env check [repo]      does what this repo declares resolve here?
@@ -131,6 +134,10 @@ bin/llmctx env explain [repo]    the declaration, and what is still manual
 `.envrc`, because sourcing would run arbitrary repository code during a check.
 It verifies resolution, not validity — whether a profile still has working
 credentials only using it can tell you, and finding that out is a deploy.
+
+What it does not do is judge whether an identifier is the *right* one. A profile
+name that resolves may still be the wrong account; only the human who granted it
+knows. The validator keeps credentials out and the checker says what is missing.
 
 Where a value comes from is layered, lowest to highest: the target file, the
 repository's declaration, then the machine's binding in `workstation`. Claude
