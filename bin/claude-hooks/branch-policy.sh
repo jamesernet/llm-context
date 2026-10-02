@@ -227,7 +227,15 @@ done
 # the protected branch — that is what resolving a conflict IS. Worse, the advice
 # this hook gives is actively wrong mid-operation: branching now would strand the
 # in-flight merge. Stay out of the way until it finishes.
-git_dir="$(git -C "$repo" rev-parse --git-path . 2>/dev/null || echo "$repo/.git")"
+# `--absolute-git-dir`, not `--git-path .`. The latter answers RELATIVE to the
+# process cwd — in a primary checkout it returns the literal `.git/.` — while
+# the `-e` tests below run from wherever the session happens to stand, not from
+# `$repo`. The exemption therefore applied only when the hook's own cwd was
+# already the repository root: a session sitting in a sibling worktree, which is
+# the normal arrangement here, got denied mid-merge on the very branch the merge
+# has to happen on. Absolute also resolves to the PER-WORKTREE git dir, which is
+# where MERGE_HEAD and the rebase directories actually live.
+git_dir="$(git -C "$repo" rev-parse --absolute-git-dir 2>/dev/null || echo "$repo/.git")"
 for state in MERGE_HEAD REBASE_HEAD CHERRY_PICK_HEAD REVERT_HEAD BISECT_LOG rebase-merge rebase-apply; do
   [[ -e "$git_dir/$state" ]] && exit 0
 done
@@ -285,12 +293,30 @@ fi
 decision="ask"
 [[ "$policy" == "deny" ]] && decision="deny"
 
-reason="On protected branch \"$branch\". The convention (behavioral-guidelines §5) is to branch first:
+# NAME THE CHECKOUT, NOT JUST THE BRANCH.
+#
+# The scoping above judges the checkout that owns the file or command, which
+# under a worktree-per-session flow is routinely NOT the directory the session
+# is standing in. A denial reading only `On protected branch "main"`, delivered
+# to a session that can see it is on a feature branch, reads as a broken guard —
+# and the documented reaction to a broken guard is the `off` line this very
+# message suggests, which disables it for the whole repository. Saying which
+# HEAD was read makes the denial checkable instead of unbelievable.
+session_repo="$(git -C "$(printf '%s' "$input" | jq -r '.cwd // "."')" \
+  rev-parse --show-toplevel 2>/dev/null || true)"
+elsewhere=""
+[[ -n "$session_repo" && "$session_repo" == "$repo" ]] ||
+  elsewhere="
+That branch was read from the checkout above, which is where this change lands.
+It is not this session's directory${session_repo:+ ($session_repo)}.
+"
+
+reason="On protected branch \"$branch\" in $repo. The convention (behavioral-guidelines §5) is to branch first:
 
   git checkout -b feature/<short-description>
-
-If this repo legitimately works on $branch, relax it here:
-  git config llmctx.branchPolicy off"
+$elsewhere
+If that checkout legitimately works on $branch, relax it there:
+  git -C \"$repo\" config llmctx.branchPolicy off"
 
 jq -n --arg d "$decision" --arg r "$reason" \
   '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:$d,permissionDecisionReason:$r}}'

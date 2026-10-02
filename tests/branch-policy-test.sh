@@ -170,4 +170,78 @@ bash_payload() { jq -nc --arg c "$1" --arg cmd "$2" \
 
 rm -rf "$feature_repo"
 
+# --- LINKED WORKTREES -------------------------------------------------------
+#
+# The arrangement this whole convention pushes you into: a primary checkout that
+# sits on the trunk by design, and a linked worktree per branch. Every decision
+# below must depend on the checkout that owns the target and NOT on where the
+# hook process happens to be standing, so each is run from a deliberately
+# unhelpful cwd.
+
+wt_main="$(mktemp -d)/primary"
+mkdir -p "$wt_main"
+git -C "$wt_main" init -q -b main
+printf '%s\n' '{"schemaVersion":1,"profile":"client"}' >"$wt_main/.llmctx.json"
+git -C "$wt_main" add -A
+git -C "$wt_main" -c user.email=t@t -c user.name=t commit -qm init
+wt_feature="$(dirname "$wt_main")/wt-feature"
+git -C "$wt_main" worktree add -q -b feature/wt "$wt_feature"
+
+edit_payload() { jq -nc --arg c "$1" --arg f "$2" \
+  '{tool_name:"Edit",session_id:"t",tool_input:{file_path:$f},cwd:$c}'; }
+
+# 1. A session in a linked worktree edits its own files while the PRIMARY
+#    checkout sits on main. Allowed — the primary's HEAD is not this edit's
+#    business, and judging it there blocked every worktree at once.
+[[ -z "$(cd / && hook_with "$(edit_payload "$wt_feature" "$wt_feature/note.md")")" ]] ||
+  fail "denied an edit in a linked worktree while the primary checkout was on main"
+
+# A file that does not exist yet is the common case for Write — the parent walk
+# must still land in the worktree rather than giving up and falling back.
+[[ -z "$(cd / && hook_with "$(edit_payload "$wt_feature" "$wt_feature/does/not/exist/yet.md")")" ]] ||
+  fail "denied a new file in a linked worktree"
+
+# 2. The rule still applies to a checkout that IS on a protected branch, even
+#    when the session is standing in a feature worktree.
+[[ "$(cd / && decision "$(edit_payload "$wt_feature" "$wt_main/README.md")")" == deny ]] ||
+  fail "allowed an edit in a checkout on main from a feature worktree session"
+
+# 3. The denial has to name the branch AND the checkout it read it from.
+#    Naming only the branch, to a session that can see it is on another one,
+#    reads as a broken guard — and the fix people reach for is `off`.
+msg="$(cd / && hook_with "$(edit_payload "$wt_feature" "$wt_main/README.md")" |
+  jq -r '.hookSpecificOutput.permissionDecisionReason')"
+[[ "$msg" == *'"main"'* ]] || fail "denial did not name the branch"
+[[ "$msg" == *"$wt_main"* ]] || fail "denial did not name the checkout it was read from"
+[[ "$msg" == *"not this session's directory"* ]] ||
+  fail "denial did not flag that the branch came from another checkout"
+
+# A merge in progress legitimately edits the trunk, and the exemption must not
+# depend on the hook's cwd either. `--git-path .` answered relatively, so this
+# was denied from anywhere but the repository root.
+git -C "$wt_main" checkout -q -b side
+echo side >"$wt_main/conflict.txt"
+git -C "$wt_main" add -A
+git -C "$wt_main" -c user.email=t@t -c user.name=t commit -qm side
+git -C "$wt_main" checkout -q main
+echo main >"$wt_main/conflict.txt"
+git -C "$wt_main" add -A
+git -C "$wt_main" -c user.email=t@t -c user.name=t commit -qm main
+git -C "$wt_main" -c user.email=t@t -c user.name=t merge side >/dev/null 2>&1 || true
+[[ -e "$wt_main/.git/MERGE_HEAD" ]] || fail "test setup: no merge in progress"
+[[ -z "$(cd / && hook_with "$(edit_payload "$wt_feature" "$wt_main/conflict.txt")")" ]] ||
+  fail "denied a conflict resolution mid-merge on the trunk"
+
+# --- fail open --------------------------------------------------------------
+#
+# A guard that blocks on a malformed payload gets removed, and then it protects
+# nothing. Anything unexpected must allow.
+for bad in 'not json at all' '' '{' '{"tool_name":"Edit"}' '{"tool_name":"Edit","tool_input":{}}'; do
+  [[ -z "$(cd / && printf '%s' "$bad" | "$HOOK" 2>/dev/null || true)" ]] ||
+    fail "did not fail open on payload: $bad"
+done
+
+git -C "$wt_main" worktree remove --force "$wt_feature" 2>/dev/null || true
+rm -rf "$(dirname "$wt_main")"
+
 echo "branch policy tests: passed"
