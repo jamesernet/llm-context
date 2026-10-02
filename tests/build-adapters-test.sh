@@ -9,6 +9,14 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SRC="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+# This suite installs into a throwaway $HOME and writes nothing real, so it is as
+# exempt from the linked-worktree guard as `--check` is. Without this, running
+# tests/run.sh from a linked worktree -- the layout this repo's own guidance
+# recommends -- hit the refusal and `set -e` aborted the suite, putting two
+# documented rules in direct conflict. Silent from the primary checkout: the
+# guard returns before reading this when $SRC is not a linked worktree.
+export LLMCTX_ALLOW_WORKTREE_INSTALL=1
+
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/llmctx-adapters-test.XXXXXX")"
 tmp="$(cd "$tmp" && pwd)"
 test_home="$tmp/home"

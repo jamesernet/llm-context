@@ -324,9 +324,88 @@ render_codex() {
   echo "There is no \`PreToolUse\` hook in Codex. The \"branch before you build\" rule is prose-only here — rely on remote branch protection or a repo pre-commit hook as the backstop."
 }
 
+# A LINKED WORKTREE MUST NOT INSTALL. $SRC is this script's own parent, and the
+# Claude adapter references the global files BY PATH rather than inlining them —
+# so running from a worktree writes `@import <worktree>/global/...` into every
+# registered account's CLAUDE.md. That path dies with the worktree, and a missing
+# @import target is SILENT: every session afterwards loses the global rules with
+# no error, and nothing connects the loss to the cause. Observed 2026-09-03.
+#
+# Refusing rather than silently resolving to the primary checkout: someone who
+# runs this from a worktree means to install THAT branch's adapters, and quietly
+# installing different content is the same class of surprise one level down.
+# LLMCTX_ALLOW_WORKTREE_INSTALL=1|true|yes is the deliberate override; --check is
+# exempt because it writes nothing, and so is the test suite, which installs into
+# a throwaway $HOME.
+refuse_worktree_install() {
+  local git_dir common_dir primary override
+
+  # The two paths are resolved with git's repository-local variables CLEARED.
+  # `rev-parse` honours GIT_DIR and GIT_COMMON_DIR from the environment over
+  # discovery from the cwd, and git exports them to every hook it runs -- so
+  # left set, both resolve to the primary, they compare equal, and this guard
+  # waves through the install it exists to block. That is not hypothetical: it
+  # covers any run under a hook, `git rebase -x`, or `git bisect run`.
+  # tests/run.sh clears the same variables before creating repositories, for the
+  # same reason; this is that idiom, scoped to one subshell.
+  {
+    read -r git_dir
+    read -r common_dir
+  } < <(
+    while IFS= read -r variable; do
+      unset "$variable"
+    done < <(git rev-parse --local-env-vars)
+    cd "$SRC" || exit 0
+    git rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 0
+    (cd "$(git rev-parse --git-dir)" && pwd) || exit 0
+    (cd "$(git rev-parse --git-common-dir)" && pwd) || exit 0
+  )
+  [[ -n "${git_dir:-}" && -n "${common_dir:-}" ]] || return 0
+  [[ "$git_dir" != "$common_dir" ]] || return 0
+
+  # Tested by VALUE, not emptiness. `-z` made every non-empty value opt in, so
+  # LLMCTX_ALLOW_WORKTREE_INSTALL=0 enabled precisely what a reader expects it to
+  # disable, and the warning read as though they had asked for it.
+  override="$(printf '%s' "${LLMCTX_ALLOW_WORKTREE_INSTALL:-}" | tr '[:upper:]' '[:lower:]')"
+  case "$override" in
+    1 | true | yes)
+      echo "warning: installing adapters from a linked worktree (LLMCTX_ALLOW_WORKTREE_INSTALL=$LLMCTX_ALLOW_WORKTREE_INSTALL)." >&2
+      echo "         every account's CLAUDE.md will @import from $SRC, which dies with this worktree." >&2
+      return 0
+      ;;
+    "" | 0 | false | no) ;;
+    *)
+      echo "error: LLMCTX_ALLOW_WORKTREE_INSTALL must be 1/true/yes or 0/false/no," >&2
+      echo "       got: $LLMCTX_ALLOW_WORKTREE_INSTALL" >&2
+      exit 2
+      ;;
+  esac
+  primary="$(dirname "$common_dir")"
+  cat >&2 <<EOF
+error: refusing to install adapters from a linked worktree.
+
+  running from: $SRC
+  primary:      $primary
+
+The Claude adapter @imports the global files by path, so installing from here
+would point every account's CLAUDE.md at this worktree. Remove the worktree and
+those imports resolve to nothing — silently, with no error in any later session.
+
+Run it from the primary checkout instead:
+
+  git -C "$primary" status        # confirm it is on the branch you want
+  "$primary/bin/build-adapters.sh"
+
+To install from here anyway, set LLMCTX_ALLOW_WORKTREE_INSTALL=1.
+EOF
+  exit 1
+}
+
 # Resolved once, before anything is written. A malformed registry must stop the
 # run rather than quietly reduce it to the accounts that happened to parse.
 accounts="$(llmctx_accounts_selected "$account")" || exit 1
+
+[[ "$check_only" -eq 1 ]] || refuse_worktree_install
 
 if [[ "$check_only" -eq 1 ]]; then
   drift=0
