@@ -334,19 +334,52 @@ render_codex() {
 # Refusing rather than silently resolving to the primary checkout: someone who
 # runs this from a worktree means to install THAT branch's adapters, and quietly
 # installing different content is the same class of surprise one level down.
-# LLMCTX_ALLOW_WORKTREE_INSTALL=1 is the deliberate override; --check is exempt
-# because it writes nothing.
+# LLMCTX_ALLOW_WORKTREE_INSTALL=1|true|yes is the deliberate override; --check is
+# exempt because it writes nothing, and so is the test suite, which installs into
+# a throwaway $HOME.
 refuse_worktree_install() {
-  local git_dir common_dir primary
-  git -C "$SRC" rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 0
-  git_dir="$(cd "$SRC" && cd "$(git rev-parse --git-dir)" && pwd)" || return 0
-  common_dir="$(cd "$SRC" && cd "$(git rev-parse --git-common-dir)" && pwd)" || return 0
+  local git_dir common_dir primary override
+
+  # The two paths are resolved with git's repository-local variables CLEARED.
+  # `rev-parse` honours GIT_DIR and GIT_COMMON_DIR from the environment over
+  # discovery from the cwd, and git exports them to every hook it runs -- so
+  # left set, both resolve to the primary, they compare equal, and this guard
+  # waves through the install it exists to block. That is not hypothetical: it
+  # covers any run under a hook, `git rebase -x`, or `git bisect run`.
+  # tests/run.sh clears the same variables before creating repositories, for the
+  # same reason; this is that idiom, scoped to one subshell.
+  {
+    read -r git_dir
+    read -r common_dir
+  } < <(
+    while IFS= read -r variable; do
+      unset "$variable"
+    done < <(git rev-parse --local-env-vars)
+    cd "$SRC" || exit 0
+    git rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 0
+    (cd "$(git rev-parse --git-dir)" && pwd) || exit 0
+    (cd "$(git rev-parse --git-common-dir)" && pwd) || exit 0
+  )
+  [[ -n "${git_dir:-}" && -n "${common_dir:-}" ]] || return 0
   [[ "$git_dir" != "$common_dir" ]] || return 0
-  [[ -z "${LLMCTX_ALLOW_WORKTREE_INSTALL:-}" ]] || {
-    echo "warning: installing adapters from a linked worktree (LLMCTX_ALLOW_WORKTREE_INSTALL set)." >&2
-    echo "         every account's CLAUDE.md will @import from $SRC, which dies with this worktree." >&2
-    return 0
-  }
+
+  # Tested by VALUE, not emptiness. `-z` made every non-empty value opt in, so
+  # LLMCTX_ALLOW_WORKTREE_INSTALL=0 enabled precisely what a reader expects it to
+  # disable, and the warning read as though they had asked for it.
+  override="$(printf '%s' "${LLMCTX_ALLOW_WORKTREE_INSTALL:-}" | tr '[:upper:]' '[:lower:]')"
+  case "$override" in
+    1 | true | yes)
+      echo "warning: installing adapters from a linked worktree (LLMCTX_ALLOW_WORKTREE_INSTALL=$LLMCTX_ALLOW_WORKTREE_INSTALL)." >&2
+      echo "         every account's CLAUDE.md will @import from $SRC, which dies with this worktree." >&2
+      return 0
+      ;;
+    "" | 0 | false | no) ;;
+    *)
+      echo "error: LLMCTX_ALLOW_WORKTREE_INSTALL must be 1/true/yes or 0/false/no," >&2
+      echo "       got: $LLMCTX_ALLOW_WORKTREE_INSTALL" >&2
+      exit 2
+      ;;
+  esac
   primary="$(dirname "$common_dir")"
   cat >&2 <<EOF
 error: refusing to install adapters from a linked worktree.
