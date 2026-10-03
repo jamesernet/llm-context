@@ -112,26 +112,50 @@ case "$tool" in
     #     cd "$W"
     #     git commit -m …
     #
-    # Failing that, honour a LEADING `cd <dir> &&`. By a wide margin the most
-    # common way an agent operates on another repository, and it was still
-    # judged against wherever the session happened to stand — denying
-    # `cd other-repo && git commit` because THIS repo is on main is the same
-    # false positive as before, one idiom later.
+    # Any `cd` that begins a STATEMENT counts, and the LAST one wins.
     #
-    # Leading only, one level, and the `cd` must be the first thing in the
-    # command. Chasing `cd` through a pipeline, a subshell, or a second `cd`
-    # needs a shell parser, and a guard that half-parses shell is wrong in both
-    # directions: it lets real violations through while inventing new false
-    # ones. When the pattern is not obvious, fall through to the session cwd,
-    # which is the conservative answer.
+    # This replaces a leading-only rule. That rule declined to follow a `cd`
+    # through a prefix on the grounds that half-parsing shell is wrong in both
+    # directions — correct as a principle, but leading-only was not the
+    # conservative end of it. Measured against this hook before the change:
+    #
+    #   cd <feature> && git commit                        ALLOW   correct
+    #   lsof … | xargs kill; cd <feature> && git commit    DENY    false positive
+    #   cd <feature> && cd <primary-on-main> && git commit ALLOW   REAL VIOLATION
+    #
+    # The third is the hole: the second `cd` is the one the shell honours, the
+    # commit lands on the trunk, and the guard allowed it — the exact failure the
+    # leading-only comment cited as its reason not to widen. Reported as the
+    # first case of emergent-possibilities/moorerunway.com#68, where a correct
+    # worktree commit was refused for carrying a `lsof` cleanup prefix.
+    #
+    # Last-wins is what the shell does for sequential statements, so it fixes the
+    # false positive and closes the hole together. Separators are treated as
+    # statement boundaries by turning each into a newline, which keeps this to
+    # string work: no eval, no parser.
+    #
+    # Still conservative where it cannot tell: a `cd` whose directory does not
+    # exist, or is built from anything other than a plain variable assigned in
+    # the same command, falls through to the session cwd as before.
     if [[ -z "$scope_dir" ]]; then
+      # Command substitutions are removed FIRST. A `cd` inside `$( )` or
+      # backticks runs in a subshell whose directory never reaches the outer
+      # command, so honouring it would scope the guard to a directory the git
+      # write never touches — `git commit -m "$(cd /elsewhere && pwd)"` must
+      # still be judged where the commit lands. One level is unwound, which is
+      # what gets written; anything deeper leaves a `cd` that fails the
+      # directory test below and falls through.
+      #
       # `sed -E`, not BRE. BSD sed — which is what macOS ships, and this repo
       # supports macOS first — has no `\|` alternation in basic expressions, so
       # the BRE form matched nothing here and silently fell through to the cwd.
       # It failed open, which is the safe direction, but it also meant the fix
       # did nothing at all on the machine it was written on.
       cd_dir="$(printf '%s' "$cmd" |
-        sed -E -n "s/^[[:space:]]*cd[[:space:]]+[\"']?([^\"';&|]*[^\"';&| ])[\"']?[[:space:]]*(&&|;|$).*/\1/p" | head -1)"
+        sed -E -e 's/\$\([^()]*\)//g' -e 's/`[^`]*`//g' |
+        tr ';&|()' '\n\n\n\n\n' |
+        sed -E -n "s/^[[:space:]]*cd[[:space:]]+[\"']?([^\"']*[^\"' ])[\"']?[[:space:]]*\$/\1/p" |
+        tail -1)"
       # `cd ~/x` is written far more often than the expanded path. Expanding a
       # leading `~/` keeps this to string work rather than eval.
       #
@@ -168,10 +192,15 @@ case "$tool" in
           var="${cd_dir#'$'}"
           var="${var#\{}"
           var="${var%\}}"
-          # Assignments only at the start of a line, so `--flag=x` is not read
-          # as one. First wins, matching what the shell would have done.
+          # Assignments only at the start of a STATEMENT, so `--flag=x` is not
+          # read as one. Separators are normalised to newlines exactly as above,
+          # which is what lets `W=/path; cd "$W"` resolve — written on one line
+          # with a `;`, the assignment is not at end-of-line and the previous
+          # pattern could not see it. First wins, matching the shell.
           assigned="$(printf '%s' "$cmd" |
-            sed -E -n "s/^[[:space:]]*${var}=[\"']?([^\"';&|]*[^\"';&| ])[\"']?[[:space:]]*\$/\1/p" | head -1)"
+            sed -E -e 's/\$\([^()]*\)//g' -e 's/`[^`]*`//g' |
+            tr ';&|()' '\n\n\n\n\n' |
+            sed -E -n "s/^[[:space:]]*${var}=[\"']?([^\"']*[^\"' ])[\"']?[[:space:]]*\$/\1/p" | head -1)"
           case "$assigned" in
             "$tilde"/*) assigned="$HOME/${assigned#"$tilde"/}" ;;
           esac

@@ -125,9 +125,36 @@ bash_payload() { jq -nc --arg c "$1" --arg cmd "$2" \
 [[ "$(decision "$(bash_payload "$feature_repo" "cd $repo && $GC")")" == deny ]] ||
   fail "allowed a commit in a protected checkout reached by a leading cd"
 
-# A cd that is not leading is not followed. Anything else needs a shell parser.
-[[ "$(decision "$(bash_payload "$repo" "ls && cd $feature_repo && $GC")")" == deny ]] ||
-  fail "followed a non-leading cd"
+# A cd that BEGINS A STATEMENT is followed wherever it sits, and the LAST one
+# wins -- which is what the shell does for sequential statements.
+#
+# This replaced a leading-only rule, and the reason was not convenience. Measured
+# against the previous hook, leading-only ALLOWED the third case below: the second
+# cd is the one the shell honours, so the commit landed on the protected branch
+# and the guard passed it. Following the last cd fixes the false positive in the
+# first two cases and closes that hole with the same rule.
+[[ -z "$(hook_with "$(bash_payload "$repo" "ls && cd $feature_repo && $GC")")" ]] ||
+  fail "denied a commit reached by a cd after an && prefix"
+[[ -z "$(hook_with "$(bash_payload "$repo" "lsof -ti :3211 | xargs -r kill -9; cd $feature_repo && $GC")")" ]] ||
+  fail "denied a commit reached by a cd after a pipeline and a ; (moorerunway.com#68)"
+[[ "$(decision "$(bash_payload "$repo" "cd $feature_repo && cd $repo && $GC")")" == deny ]] ||
+  fail "the LAST cd did not win: a commit on a protected branch was allowed"
+
+# A subshell is still a statement boundary, so the cd inside one is seen.
+[[ -z "$(hook_with "$(bash_payload "$repo" "(cd $feature_repo && $GC)")")" ]] ||
+  fail "denied a commit inside a subshell that cd-ed first"
+
+# But a cd inside a command substitution must NOT be followed: it runs in its own
+# subshell, its directory never reaches the outer command, and the commit lands
+# where the session stands. Honouring it would scope the guard to a directory the
+# git write never touches.
+[[ "$(decision "$(bash_payload "$repo" "$GC -m \"\$(cd $feature_repo && pwd)\"")")" == deny ]] ||
+  fail "followed a cd inside a command substitution"
+
+# `W=<path>; cd "$W"` on ONE line. The assignment is not at end-of-line here, so
+# the variable lookup has to normalise separators the same way the cd match does.
+[[ -z "$(hook_with "$(bash_payload "$repo" "W=$feature_repo; cd \"\$W\" && $GC")")" ]] ||
+  fail "did not resolve a variable assigned before a ; on the same line"
 
 # A cd to somewhere that does not exist falls back to the session, not to allow.
 [[ "$(decision "$(bash_payload "$repo" "cd /no/such/dir && $GC")")" == deny ]] ||
